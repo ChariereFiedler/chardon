@@ -1,0 +1,14 @@
+{
+  "name": "chardon",
+  "owner": {
+    "name": "siliceum",
+    "url": "https://github.com/siliceum"
+  },
+  "plugins": [
+    {
+      "name": "chardon",
+      "source": "./",
+      "description": "Workflow monitoring: event collection, token-cost analysis, live status line, and an improvement loop (detect → propose → measure)."
+    }
+  ]
+}
