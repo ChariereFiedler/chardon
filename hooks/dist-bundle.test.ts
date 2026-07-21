@@ -16,7 +16,7 @@ const { DatabaseSync } = req("node:sqlite") as typeof import("node:sqlite");
 // they must exercise the real dist artifacts.
 describe("dist bundles — CLI-entry & legacy DB regressions", () => {
   beforeAll(() => {
-    execFileSync("node", [join(root, "scripts", "build.mjs")], { stdio: "ignore" });
+    execFileSync("node", [join(root, "tools", "build.mjs")], { stdio: "ignore" });
   }, 60_000);
 
   // The bundle is statusline.mjs, but the old guard only matched .ts/.js — so main()

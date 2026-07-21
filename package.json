@@ -17,16 +17,18 @@
     "node": ">=22"
   },
   "scripts": {
-    "build": "node scripts/build.mjs",
-    "pretest": "node scripts/build.mjs",
+    "build": "node tools/build.mjs",
+    "pretest": "node tools/build.mjs && node --experimental-strip-types tools/validate.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "lint": "biome check lib/ hooks/ scripts/",
-    "lint:fix": "biome check --write lib/ hooks/ scripts/",
+    "lint": "biome check lib/ hooks/ scripts/ tools/",
+    "lint:fix": "biome check --write lib/ hooks/ scripts/ tools/",
     "eval": "vitest run --config vitest.eval.config.ts",
     "coverage": "vitest run --coverage",
-    "mutation": "stryker run"
+    "mutation": "stryker run",
+    "validate": "node --experimental-strip-types tools/validate.ts",
+    "prepublishOnly": "npm run build && npm test"
   },
   "optionalDependencies": {
     "@anthropic-ai/sdk": "^0.106.0"

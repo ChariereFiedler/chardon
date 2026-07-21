@@ -29,6 +29,8 @@ jobs:
       - run: npm run build
       - name: dist is in sync with source
         run: git diff --exit-code -- dist
+      # Plugin manifests and the doc claims that can be checked mechanically.
+      - run: npm run validate
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
