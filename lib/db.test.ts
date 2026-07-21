@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { createRequire } from "node:module";
+import { spawnSync } from "node:child_process";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -111,5 +112,27 @@ describe("db migration: token_usage.repo backfill (pre-686a939 DBs)", () => {
     } finally {
       closeDb(b);
     }
+  });
+
+  // Run in a subprocess that does NOT call process.exit: hooks only hid this warning by
+  // exiting before its asynchronous emission, so the suppression must hold on its own.
+  it("suppresses the node:sqlite ExperimentalWarning without swallowing other warnings", () => {
+    const dbFile = join(mkdtempSync(join(tmpdir(), "chardon-warn-")), "w.db");
+    const script = `
+      process.env.CHARDON_DB = ${JSON.stringify(dbFile)};
+      const { openDb, closeDb } = await import(${JSON.stringify(new URL("./db.ts", import.meta.url).href)});
+      closeDb(openDb());
+      process.emitWarning("canary warning");
+      await new Promise((r) => setTimeout(r, 50));
+    `;
+    const { status, stderr } = spawnSync(
+      process.execPath,
+      ["--experimental-strip-types", "--input-type=module", "--eval", script],
+      { encoding: "utf-8" },
+    );
+
+    expect(status).toBe(0);
+    expect(stderr).not.toMatch(/ExperimentalWarning: SQLite/);
+    expect(stderr).toMatch(/canary warning/);
   });
 });
