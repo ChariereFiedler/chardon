@@ -9,6 +9,23 @@ import { dbPath } from "./config.ts";
 const nodeRequire = createRequire(import.meta.url);
 const { DatabaseSync } = nodeRequire("node:sqlite") as typeof import("node:sqlite");
 
+/**
+ * Silences the `node:sqlite` ExperimentalWarning, which Node still emits on 22 and 24.
+ *
+ * Hooks never showed it only by accident: they end on `process.exit(0)`, which wins the
+ * race against the warning's asynchronous emission. Anything that does not exit at once —
+ * the status line, refreshed every 30 s — would otherwise print it on every run. Every
+ * other warning is preserved and still reaches stderr.
+ */
+function silenceSqliteExperimentalWarning(): void {
+  process.removeAllListeners("warning");
+  process.on("warning", (w) => {
+    const isSqliteExperimental = w.name === "ExperimentalWarning" && w.message.includes("SQLite");
+    if (!isSqliteExperimental) process.stderr.write(`${w.stack ?? `${w.name}: ${w.message}`}\n`);
+  });
+}
+silenceSqliteExperimentalWarning();
+
 const SCHEMA_PATH = join(dirname(fileURLToPath(import.meta.url)), "schema.sql");
 
 /**
