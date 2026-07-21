@@ -40,12 +40,16 @@ describe("session-start hook — subprocess smoke tests", () => {
   it("inserts a session for a valid payload", () => {
     const code = runHook(JSON.stringify({ session_id: "abc", cwd: project }), { CHARDON_DB: dbFile, CLAUDE_PROJECT_DIR: project });
     expect(code).toBe(0);
-    const db = openDb(); // CHARDON_DB points to dbFile via current process env
+    // CHARDON_DB must be set on THIS process before opening: passing it to the subprocess
+    // env only scopes the hook. Without it, openDb() would hit the real ~/.claude/chardon.db.
     process.env.CHARDON_DB = dbFile;
-    const db2 = openDb();
-    const s = db2.prepare("SELECT id FROM sessions WHERE id = 'abc'").get();
-    expect(s).toBeTruthy();
-    closeDb(db); closeDb(db2);
+    const db = openDb();
+    try {
+      const s = db.prepare("SELECT id FROM sessions WHERE id = 'abc'").get();
+      expect(s).toBeTruthy();
+    } finally {
+      closeDb(db);
+    }
   });
 
   it("fail-open on empty input (exit 0, no exception)", () => {
