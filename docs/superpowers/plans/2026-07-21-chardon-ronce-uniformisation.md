@@ -97,6 +97,40 @@ Bundling may not pay off here, since its hooks import few siblings.
 
 **Verify**: numbers recorded in the build header, replacing the current ones if they change.
 
+## Outcome
+
+**Phases 1 to 3 (Chardon), done.** `tools/validate.ts` checks the manifests and the
+mechanically verifiable doc claims, wired into `pretest` and CI. Each of the seven checks was
+proven by reintroducing the defect it targets. `scripts/build.mjs` moved to `tools/`.
+
+**Phase 4 (Vitest), done.** 96 cases across 11 files, exact parity with the bespoke runner
+before deleting it. Two findings:
+
+- `WORK` was derived from `process.argv[1]`, which identified the file under the old
+  one-process-per-file runner but is the Vitest binary now. Every file would have shared one
+  scratch directory. It now comes from Vitest's own test path.
+- Files must run **sequentially** (`fileParallelism: false`). These tests spawn the real CLI
+  and hooks against shared repo state, and running them concurrently made them race.
+
+**Phase 5 (Stryker), revised by measurement.** Stryker does **not** replace
+`tools/mutations.ts`, it complements it. Stryker instruments code in memory, so it only sees
+modules a test imports directly; a test that spawns a subprocess runs the original file from
+disk. Measured: every subprocess-tested file scored 0% with all mutants uncovered, while
+`tools/eval.ts`, which tests import, scored 79%. Both harnesses are now wired, each on the
+code it can actually reach. Overall score 43.65%, but **92.80% on covered mutants**.
+
+**Phase 6 (esbuild), answered structurally then measured.** Ronce Racine's eight hooks have
+**zero sibling imports**, so bundling has nothing to inline. Measured: a built hook spawns in
+33.4 ms against a bare-node floor of 25.0 ms, versus 88.0 ms running the TypeScript source.
+`transpileModule` stays; esbuild would buy nothing.
+
+**Incident, caused and fixed.** Running the files in parallel made `playground/setup.ts` fail
+its fixture cleanup; `git init` then failed and git walked up to the real checkout, landing
+six `fix(cart)` fixture commits and 600+ junk files in Ronce Racine's history. Nothing was
+pushed. The branch was rebuilt from the clean base, and `setup.ts` now sets
+`GIT_CEILING_DIRECTORIES` so git can never escape the fixtures directory again (verified: it
+resolved to the repo root without the guard, and refuses with it).
+
 ## Order
 
 Phases 1 and 2 first: they are cheap, they protect against the class of bug that shipped
