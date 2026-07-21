@@ -1,0 +1,29 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node --experimental-strip-types $CLAUDE_PROJECT_DIR/.claude/hooks/skill-reminder.ts"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node --experimental-strip-types $CLAUDE_PROJECT_DIR/.claude/hooks/bash-npm-silent.ts"
+          },
+          {
+            "type": "command",
+            "command": "node --experimental-strip-types $CLAUDE_PROJECT_DIR/.claude/hooks/truncate-output.ts"
+          }
+        ]
+      }
+    ]
+  }
+}
