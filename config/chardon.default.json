@@ -1,0 +1,20 @@
+{
+  "outDir": "docs/chardon",
+  "ticketRegex": "(?:feat|fix)/(\\d+)",
+  "tokenBudgetPerDay": 0,
+  "retentionDays": 90,
+  "thresholds": {
+    "toilMin": 3,
+    "retryMin": 4,
+    "coldMin": 3,
+    "failMin": 3,
+    "slowMin": 3,
+    "slowMs": 30000
+  },
+  "toilExclusions": [],
+  "gitlab": {
+    "enabled": false,
+    "projectId": "",
+    "tokenEnv": "GITLAB_TOKEN"
+  }
+}
