@@ -2,12 +2,9 @@
   "name": "chardon",
   "version": "0.1.0",
   "description": "Workflow monitoring for Claude Code: collection, token-cost analysis, and an improvement loop.",
-  "author": "siliceum",
-  "commands": "./commands",
-  "hooks": "./hooks/hooks.json",
-  "statusLine": {
-    "type": "command",
-    "command": "node ${CLAUDE_PLUGIN_ROOT}/dist/statusline.mjs",
-    "refreshInterval": 30
-  }
+  "author": {
+    "name": "siliceum",
+    "url": "https://github.com/ChariereFiedler"
+  },
+  "commands": "./commands"
 }
