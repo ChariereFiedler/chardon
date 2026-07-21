@@ -1,0 +1,31 @@
+{
+  "source": "7ca92933c51c11a241890d6fae531f3d1481d94b",
+  "installed": [
+    "agent:code-reviewer.md",
+    "agent:qa-tester.md",
+    "hook:bash-npm-silent.ts",
+    "hook:skill-reminder.ts",
+    "hook:truncate-bash-output.ts",
+    "hook:truncate-output.ts",
+    "rule:commits.md",
+    "rule:error-handling-discipline.md",
+    "rule:minimal-code.md",
+    "rule:no-raw-sql-interpolation.md",
+    "rule:pre-commit-secret-detection.md",
+    "rule:secure-logging.md",
+    "rule:test-discipline.md",
+    "skill:adversarial-feature-challenge",
+    "skill:bug-ticket-root-cause",
+    "skill:bug-triage-structured",
+    "skill:commit-readiness-review",
+    "skill:comprehensive-test-strategy",
+    "skill:database-schema-evolution",
+    "skill:detection-sweep",
+    "skill:merge-request-review",
+    "skill:recording-decisions",
+    "skill:recurring-bug-root-cause",
+    "skill:validating-features-end-to-end",
+    "skill:writing-robust-tests"
+  ],
+  "detached": []
+}

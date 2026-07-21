@@ -1,0 +1,8 @@
+# Generic rules adopted (ronce-racine). Resync: install.ts install --rules-only .
+commits.md
+error-handling-discipline.md
+minimal-code.md
+no-raw-sql-interpolation.md
+pre-commit-secret-detection.md
+secure-logging.md
+test-discipline.md
