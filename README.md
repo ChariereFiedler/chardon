@@ -49,8 +49,24 @@ Every other feature works without it.
 /plugin install chardon@chardon
 ```
 
-Hooks wire themselves on activation (via `hooks/hooks.json`) — nothing to copy by hand. Drop a
+The eight commands and the four hooks are wired on activation, nothing to copy by hand. Drop a
 `.chardon.json` at your project root to override defaults.
+
+**The status line is the one exception.** Claude Code ignores a `statusLine` declared in a
+plugin manifest, so it has to be wired by hand, once, in your `settings.json`:
+
+```json
+{
+  "statusLine": {
+    "type": "command",
+    "command": "node ~/.claude/plugins/cache/chardon/chardon/0.1.0/dist/statusline.mjs",
+    "refreshInterval": 30
+  }
+}
+```
+
+Note the version in that path: it changes when the plugin updates, so the line has to be
+updated with it. Everything else works without this step.
 
 ## What a day looks like
 

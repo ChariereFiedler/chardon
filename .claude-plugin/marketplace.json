@@ -1,5 +1,6 @@
 {
   "name": "chardon",
+  "description": "Workflow monitoring for Claude Code: friction detection, token cost, and a measured improvement loop.",
   "owner": {
     "name": "siliceum",
     "url": "https://github.com/ChariereFiedler"
