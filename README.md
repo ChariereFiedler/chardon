@@ -61,7 +61,7 @@ Deferred to v1.1 → [Roadmap](#roadmap).
 > LLM synthesis; everything else works without it.
 
 ```
-/plugin marketplace add siliceum/chardon
+/plugin marketplace add ChariereFiedler/chardon
 /plugin install chardon@chardon
 ```
 

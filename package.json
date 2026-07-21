@@ -5,13 +5,13 @@
   "description": "Workflow monitoring for Claude Code: collection, token-cost analysis, and an improvement loop",
   "license": "MIT",
   "author": "siliceum",
-  "homepage": "https://github.com/siliceum/chardon#readme",
+  "homepage": "https://github.com/ChariereFiedler/chardon#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/siliceum/chardon.git"
+    "url": "git+https://github.com/ChariereFiedler/chardon.git"
   },
   "bugs": {
-    "url": "https://github.com/siliceum/chardon/issues"
+    "url": "https://github.com/ChariereFiedler/chardon/issues"
   },
   "engines": {
     "node": ">=22"
