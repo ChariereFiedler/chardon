@@ -4,144 +4,282 @@
 
 # Chardon
 
-A Claude Code plugin for **workflow monitoring**. It observes the events of a coding
-session, stores them in SQLite, and turns them into **daily and weekly reports** of
-frictions and velocity, a **live status line**, token-cost analysis, and a
-**self-improvement loop** (detect → propose → measure).
+Claude Code plugin that watches how your coding sessions actually go, and tells you what to
+fix. Four fail-open hooks record tool usage into a local SQLite file; from that, Chardon
+produces a **daily friction report**, a **live status line**, **token-cost tracking**, and an
+**improvement loop** that proposes a concrete action and then measures whether it worked.
 
-Generic: runs on any project, with no dependency on a specific tracker or CI. All hooks
-are **fail-open** — they never break a session. No build step and **no required runtime npm
-dependencies** — only Node ≥ 22.
+Generic: no tracker, no CI, no stack assumed. Everything is derived from `CLAUDE_PROJECT_DIR`.
 
-## What chardon is (and isn't)
+## Why Chardon, not a dashboard?
 
-chardon is a **personal, local tool**. Everything lives in a SQLite file on your machine
-(`~/.claude/chardon.db`, created `0600`); nothing is synced or aggregated across a team, and
-there is no dashboard for anyone but you. The only data that ever leaves the machine is the
-**optional** weekly LLM synthesis, which you enable explicitly with an API key. Commands are
-**redacted** before storage (`lib/redact.ts`), history is bounded by `/chardon-purge`, and
-`/chardon-inspect` shows you exactly what is stored. It is **not** a productivity-surveillance
-tool and is deliberately not built to become one.
+Most developer-analytics tools answer a manager's question — *how much did the team ship?*
+Chardon answers yours: **what did I waste time on today, and what should I change tomorrow?**
 
-See the closed improvement loop in action → [`docs/walkthrough.md`](docs/walkthrough.md).
+That difference decides the whole design. There is no server, no account, no aggregation
+across people, nothing to log into. Because the data never leaves your machine, it can afford
+to be specific — the actual commands you re-ran, the actual files you re-read — instead of the
+anonymized averages a shared dashboard is forced to show.
 
-## Performance & overhead (measured, honest)
+The loop is closed on purpose. Anything can list frictions; Chardon records a **baseline**
+when it proposes a fix and re-counts the same friction after you act, so a suggestion that
+changed nothing is visible as such — and is never proposed again.
 
-Each hook runs as a fresh Node process per tool call, so per-call latency matters. Running
-the TypeScript source directly (`node --experimental-strip-types`) re-strips the whole import
-graph on every spawn — measured **~150 ms/tool-call**. chardon therefore ships **precompiled
-bundles** in `dist/*.mjs` (built with esbuild): hooks run as plain `node dist/*.mjs`, which
-drops the cost to roughly the **Node-startup floor (~a few tens of ms)** — about a 2–3×
-reduction. The remaining cost is Node process startup itself, which is irreducible without a
-long-running daemon.
+## The name
 
-The bundles are committed, so **consumers still install nothing and build nothing** — only
-Node ≥ 22. Maintainers rebuild with `npm run build` (also run automatically before tests).
-Reproduce the numbers on your machine: `npm run build && node --experimental-strip-types scripts/bench.ts`.
+*Chardon* is French for **thistle**: it grows in ground nobody tends, it is covered in small
+sharp reminders, and pulling it up means going after the root rather than the leaves. Roughly
+the job here. It also keeps company with
+[Ronce Racine](https://github.com/ChariereFiedler/ronce-racine) ("bramble root"), the shared
+engineering-discipline config this repo is itself equipped with.
 
-## Status — v1 complete
+## Requirements
 
-The full pipeline works end to end:
+**Node ≥ 22**, and nothing else. `node:sqlite` ships with Node, hooks run as precompiled
+`dist/*.mjs` bundles via plain `node`, and those bundles are committed — so installing Chardon
+downloads no dependency and runs no build step.
 
-- 4 hooks collect sessions and tool usage into `~/.claude/chardon.db`;
-- token usage is parsed from transcripts; a daily report (frictions, tokens, velocity)
-  is generated on every `Stop`, plus an optional weekly LLM synthesis;
-- a live status line shows context, subagents, worktrees, and the token budget;
-- the **improvement loop** turns frictions into tracked actions and measures their ROI.
-
-Slash commands: `/chardon-daily`, `/chardon-weekly`, `/chardon-improve`.
-Suite: 203 passing tests. Architecture details → [`docs/architecture.md`](docs/architecture.md).
-Deferred to v1.1 → [Roadmap](#roadmap).
+The one optional dependency is `@anthropic-ai/sdk`, used solely by the weekly LLM synthesis.
+Every other feature works without it.
 
 ## Installation
-
-> Node **≥ 22** required (`node:sqlite`; stable on Node 24). No *required* runtime
-> dependency — hooks run as precompiled `dist/*.mjs` bundles via plain `node`, no install
-> or build step. The only optional one is `@anthropic-ai/sdk`, used solely by the weekly
-> LLM synthesis; everything else works without it.
 
 ```
 /plugin marketplace add ChariereFiedler/chardon
 /plugin install chardon@chardon
 ```
 
-On activation, the hooks wire themselves automatically (via `hooks/hooks.json`). No
-manual copy. Optionally drop a `.chardon.json` at the project root to override defaults.
+Hooks wire themselves on activation (via `hooks/hooks.json`) — nothing to copy by hand. Drop a
+`.chardon.json` at your project root to override defaults.
+
+## What a day looks like
+
+Nothing below is a command you have to remember. The four hooks run on their own; you type a
+slash command only when you want to *read* something.
+
+### While you work — automatic
+
+`SessionStart` opens a session. Every tool call lands in `events` via `PostToolUse`: Bash
+commands **redacted before storage**, file paths, durations, success or failure. The status
+line shows the live picture:
+
+```
+my-project · feat/412-billing · 🌳 1 · 💰 142000/120000 ⚠
+```
+
+Repo, branch, one sibling worktree, and today's token count — flagged `⚠` because it crossed
+the budget set in `.chardon.json`. On `Stop`, the daily report is written to `docs/chardon/`.
+
+### Reading the damage — `/chardon-daily`
+
+```markdown
+# Dev Metrics — 2026-07-21
+
+## Velocity
+- 1 session(s) · 16 tool calls · 0 failure(s)
+
+## Collection health
+🟢 healthy — 16 write(s) recorded, 0 failures
+
+## Detected frictions
+
+### Toil loops (same command repeated)
+| Command | Repetitions |
+|---|---|
+| `docker compose up -d && npm run seed` | 4 |
+| `npm run test:e2e -- --grep billing` | 3 |
+
+### Cold reads (file re-read often → memory/skill candidate)
+| File | Reads |
+|---|---|
+| `src/billing/invoice-calculator.ts` | 5 |
+
+### Retry storms (same file edited repeatedly)
+| File | Edits |
+|---|---|
+| `src/billing/tax-rules.ts` | 4 |
+```
+
+*Collection health* is not decoration. Hooks are fail-open, so a broken hook stays silent by
+design — this line is how you find out it went silent.
+
+### Deciding what to change — `/chardon-improve`
+
+```markdown
+## Prioritized Proposals
+
+- 🟡 **automate-command** → `docker compose up -d && npm run seed` (baseline: 4)
+  ↳ run less often, or add it to `toilExclusions` / script it
+- 🟡 **split-or-summarize** → `src/billing/invoice-calculator.ts` (baseline: 5)
+  ↳ summarize it into a memory note so it isn't re-read
+- 🟡 **investigate-file** → `src/billing/tax-rules.ts` (baseline: 4)
+  ↳ edited repeatedly — find the root cause
+- 🟡 **consider-skill** → `recurring-bug-root-cause` (baseline: 4)
+  ↳ invoke this skill next time the friction appears
+
+## Open Actions
+
+- `#1` [proposed] **automate-command** → `docker compose up -d && npm run seed`
+```
+
+Note the last one: the friction was a retry storm, a skill exists for exactly that, and you
+did not invoke it. Chardon says so.
+
+### Closing the loop
+
+```
+/chardon-apply 1     → Action 1 marked applied — run measure later to capture its ROI.
+/chardon-measure 1   → Action 1: friction 4 → 0 (reduced by 4).
+/chardon-drop 2      → never propose this one again ("this is normal here")
+```
+
+`measure` re-counts the *same* friction and compares it against the baseline captured when
+the action was proposed. An action measured as ineffective is never re-proposed, and a
+friction that returns after being fixed resurfaces in a **Regressions** section.
+
+## What Chardon detects
+
+Windows are 24 h for the daily report. Every threshold is configurable — raise them to cut
+noise, see [Configuration](#configuration).
+
+| Friction | What it means | Default threshold |
+|---|---|---|
+| **Toil loop** | the same Bash command run over and over | ≥ 3 runs (`toilMin`) |
+| **Failing command** | the same command *failing*, not merely repeating | ≥ 3 failures (`failMin`) |
+| **Slow command** | the same command repeatedly burning wall-clock | ≥ 3 runs averaging ≥ 30 s (`slowMin`, `slowMs`) |
+| **Retry storm** | one file edited again and again — usually a misunderstood root cause | ≥ 4 edits (`retryMin`) |
+| **Cold read** | one file re-read but never modified — a memory-note candidate | ≥ 3 reads (`coldMin`) |
+| **Cross-project command** | the same friction across several repos — worth a canonical rule or skill | ≥ 2 repos |
+
+## What Chardon proposes
+
+Each proposal carries a **baseline** (the friction count when it was raised) and a severity
+(⚪ low, 🟡 medium, 🔴 high), so the digest is ordered by what actually costs you.
+
+| Proposal | Raised when | What it suggests |
+|---|---|---|
+| `automate-command` | toil loop | script it, run it less, or exclude it |
+| `fix-failing-command` | failing command | fix or guard it instead of rerunning |
+| `speed-up-command` | slow command | cache, scope, or parallelize it |
+| `split-or-summarize` | cold read | summarize the file into a memory note |
+| `investigate-file` | retry storm | find the root cause behind the repeated edits |
+| `consider-skill` | a friction that maps to a known skill you did not invoke | use that skill next time |
+| `reduce-token-spend` | spend over budget | trim context: large re-reads, long transcripts |
+| `investigate-token-growth` | week-over-week token jump | check for context churn |
+
+## Commands
+
+| Command | What it does |
+|---|---|
+| `/chardon-daily` | today's report: velocity, frictions, tokens, collection health |
+| `/chardon-weekly` | weekly synthesis and token trend (the LLM step is optional) |
+| `/chardon-improve` | prioritized proposals, open actions, measured ROI, regressions |
+| `/chardon-apply <id>` | mark an action as applied |
+| `/chardon-measure <id>` | re-count the friction and record the delta |
+| `/chardon-drop <id>` | drop a proposal for good |
+| `/chardon-inspect` | show exactly what is stored locally |
+| `/chardon-purge` | delete history older than the retention window |
+
+## What leaves your machine
+
+Nothing, unless you ask for it.
+
+Everything lives in `~/.claude/chardon.db`, created `0600`. Commands are **redacted before
+storage** (`lib/redact.ts`): GitLab, GitHub, Anthropic, AWS, Stripe, npm and Slack tokens,
+JWTs, `VAR_TOKEN=…` assignments, credentials embedded in URLs, and secrets passed as bare CLI
+arguments (`--token …`, `Bearer …`). History is bounded by `retentionDays` and
+`/chardon-purge`, and `/chardon-inspect` prints exactly what is stored, scoped to the current
+repo.
+
+The single exception is `/chardon-weekly`, whose synthesis step calls the Anthropic API — and
+only if you set `ANTHROPIC_API_KEY` yourself.
+
+Chardon is **not** a productivity-surveillance tool, and is deliberately built so it cannot
+become one: no row is attributed to a person, and nothing is aggregated across machines.
 
 ## Configuration
 
-`.chardon.json` (project root, optional) overrides `config/chardon.default.json`.
-Shallow first-level merge.
+`.chardon.json` at the project root overrides `config/chardon.default.json`. Top-level keys
+are shallow-merged; `thresholds` and `gitlab` are deep-merged, so a partial override keeps the
+remaining defaults.
 
-| Key | Default | Role | Active |
-|-----|---------|------|--------|
-| `outDir` | `"docs/chardon"` | report destination (relative to the project) | ✅ |
-| `ticketRegex` | `"(?:feat|fix)/(\\d+)"` | extract the ticket number from the branch | ✅ |
-| `toilExclusions` | `[]` | commands to ignore in toil detection | ✅ |
-| `tokenBudgetPerDay` | `0` | daily token budget; the status line flags overruns | ✅ |
-| `gitlab` | `{enabled:false,…}` | optional GitLab status-line integration | ✅ |
+| Key | Default | Role |
+|---|---|---|
+| `outDir` | `"docs/chardon"` | where reports are written (confined to the project) |
+| `ticketRegex` | `"(?:feat\|fix)/(\\d+)"` | pulls a ticket number out of the branch name |
+| `toilExclusions` | `[]` | commands to ignore in toil detection |
+| `tokenBudgetPerDay` | `0` (off) | the status line flags `⚠` past this many tokens |
+| `retentionDays` | `90` | how far back `/chardon-purge` keeps history |
+| `thresholds` | see above | detection thresholds — raise them to cut noise |
+| `gitlab` | `{enabled: false}` | optional MR and issue counts in the status line |
 
 ### Environment variables
 
 | Variable | Effect |
-|----------|--------|
-| `CHARDON_DB` | DB path (default `~/.claude/chardon.db`) |
-| `CLAUDE_PROJECT_DIR` | project root — injected by Claude Code; if absent, the hook does nothing |
-| `CHARDON_ACTIVE=1` | enables the `notify` hook's inline toil alerts (otherwise silent) |
+|---|---|
+| `CLAUDE_PROJECT_DIR` | project root, injected by Claude Code — without it a hook does nothing |
+| `CHARDON_DB` | database path (default `~/.claude/chardon.db`) |
+| `CHARDON_DEBUG=1` | trace hook failures to stderr instead of failing silently |
+| `CHARDON_ACTIVE=1` | enable the `notify` hook's inline toil alerts |
+| `CHARDON_MODEL` | override the model used by the weekly synthesis |
 
-## Daily report
+## Performance & overhead (measured)
 
-Generated on every `Stop`, or by hand:
+Each hook is a fresh Node process per tool call, so per-call latency is the whole game.
+Running the TypeScript sources directly re-strips the import graph on every spawn. Chardon
+therefore ships **precompiled esbuild bundles**, which brings the cost down to roughly the
+Node-startup floor. Measured by `scripts/bench.ts` on a 2026 Linux laptop:
 
-```bash
-npm run build && node dist/analyze-daily.mjs   # also exposed via /chardon-daily
+```
+event write (in-process):        ~0.172 ms/event
+hook spawn, source (strip-types): ~123 ms/event
+hook spawn, bundle (plain node):  ~56 ms/event
 ```
 
-Contents: velocity (sessions, tool calls, failures) + frictions (toil loops, cold reads)
-over the last 24 h.
+Expect roughly a 2× cut, with absolute numbers varying by machine.
+
+What remains is Node process startup, irreducible without a long-running daemon. If that cost
+is unacceptable to you, this plugin is not for you — a real trade-off, not a footnote.
+Reproduce the numbers yourself:
+
+```bash
+npm run build && node --experimental-strip-types scripts/bench.ts
+```
+
+## Architecture
+
+```
+hooks/     SessionStart · PreToolUse(Bash) · PostToolUse · Stop — all fail-open
+  └─> lib/     db (SQLite) · redact · patterns (detection) · improve · roi · config
+scripts/   analyze-daily · analyze-weekly · statusline · improve · inspect · purge · roi-actions
+dist/      the above, precompiled and committed — what actually runs
+```
+
+Flow: hooks → `chardon.db` (WAL) → readers query the DB → Markdown out. Rendering is kept pure
+(data → string) and separated from I/O, so it is tested without touching a database.
+
+Data model, invariants and known limits → [`docs/architecture.md`](docs/architecture.md).
+Agent-facing working rules → [`AGENTS.md`](AGENTS.md) and [`CLAUDE.md`](CLAUDE.md).
 
 ## Development
 
 ```bash
-npm install        # dev tooling only (vitest, typescript) — not needed at runtime
-npm test           # vitest run (203 tests)
-npm run typecheck  # tsc --noEmit
+npm install        # dev tooling only — never needed at runtime
+npm run build      # refresh dist/*.mjs (the bundles are committed)
+npm test           # 204 tests
+npm run typecheck
+npm run lint
 ```
 
-Test strategy → [`TESTING.md`](TESTING.md). Hooks are tested as real subprocesses (stdin +
-env), and fail-open is enforced by tests. Working rules → [`CLAUDE.md`](CLAUDE.md).
-
-This repo is itself equipped with the shared [Ronce Racine](https://github.com/ChariereFiedler/ronce-racine)
-base (`.claude/`: dev rules, skills, hooks).
-
-## Architecture (overview)
-
-```
-hooks/        collection (SessionStart, PreToolUse Bash, PostToolUse, Stop) — fail-open
-  └─> lib/    SQLite storage (db) · redaction (redact) · detection (patterns) · config
-scripts/      analysis (analyze-daily: pure render + generation)
-config/        defaults; project override .chardon.json
-```
-
-Flow: hooks → `chardon.db` (WAL) → `analyze-daily` reads the DB → Markdown report.
-Details, data model and invariants → [`docs/architecture.md`](docs/architecture.md).
+Hooks are tested as **real subprocesses** (stdin + env), and fail-open is asserted rather than
+assumed. Test strategy → [`TESTING.md`](TESTING.md).
 
 ## Roadmap
 
-| Batch | Contents | Status |
-|-------|----------|--------|
-| **1** | collect → SQLite → daily report | ✅ done |
-| **2** | `token-parser` (token cost, `token_usage` table) | ✅ done |
-| **3** | generic live status line + token budget (+ optional GitLab) | ✅ done |
-| **4** | config hardening + `/chardon-daily` | ✅ done |
-| **5** | `analyze-weekly` (optional LLM synthesis) | ✅ done |
-| **6** | improvement loop: `actions` table, ROI measurement, `/chardon-improve` | ✅ done |
+v1 is complete: collection, token parsing, daily and weekly reports, status line, and the full
+improvement loop — including regression alerts and the cross-project signal.
 
-**Deferred to v1.1**: populating `ticket_metrics` (ticket lifecycle). The cross-project
-"Ronce Racine candidate" signal (a recurring generic friction across projects → a proposed
-canonical rule/skill) is now surfaced in the improve digest.
-
-Full design → [`docs/2026-06-25-chardon-plugin-design.md`](docs/2026-06-25-chardon-plugin-design.md).
+Deferred: `ticket_metrics` (ticket lifecycle) exists in the schema but is never populated.
 
 ## Contributing & license
 

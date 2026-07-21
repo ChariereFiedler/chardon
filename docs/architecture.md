@@ -83,7 +83,7 @@ future use.
   synthesis only). The `.ts` under `hooks/`/`lib/`/`scripts/` is the source
   of truth; `npm run build` (esbuild) precompiles it to committed `dist/*.mjs` bundles that
   `hooks.json` and the commands run with plain `node`. This avoids re-stripping types on
-  every hook spawn (~2–3× faster per tool call — see the README's Performance section).
+  every hook spawn (roughly 2× faster per tool call — see the README's Performance section).
   Tests run against the `.ts` directly; the `hooks-wiring` test runs the built `dist` bundles.
 - `node:sqlite` loaded via `createRequire(import.meta.url)` — otherwise Vite/Vitest
   rewrites `node:sqlite` → `sqlite` (not found) at transform time.
