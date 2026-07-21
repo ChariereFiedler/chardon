@@ -1,5 +1,5 @@
 import { createRequire } from "node:module";
-import { chmodSync, readFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { dbPath } from "./config.ts";
@@ -45,6 +45,10 @@ export type ChardonDb = InstanceType<typeof DatabaseSync>;
  */
 export function openDb(): ChardonDb {
   const path = dbPath();
+  // SQLite will not create missing parent directories: a fresh machine with no
+  // ~/.claude, or a CHARDON_DB pointing into a directory that does not exist yet,
+  // would otherwise fail to open and silently lose every write (hooks fail open).
+  mkdirSync(dirname(path), { recursive: true });
   const db = new DatabaseSync(path);
   // Harden permissions: the DB holds command fragments and file paths. Owner-only
   // (0600) so it is not world-readable on a shared machine. Best-effort — never throw.
