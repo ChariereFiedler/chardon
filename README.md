@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/header.png" alt="Illustration of purple and gold thistles" width="100%">
+</p>
+
 # Chardon
 
 A Claude Code plugin for **workflow monitoring**. It observes the events of a coding
@@ -69,13 +73,13 @@ manual copy. Optionally drop a `.chardon.json` at the project root to override d
 `.chardon.json` (project root, optional) overrides `config/chardon.default.json`.
 Shallow first-level merge.
 
-| Key | Default | Role | Active in Batch 1 |
-|-----|---------|------|-------------------|
+| Key | Default | Role | Active |
+|-----|---------|------|--------|
 | `outDir` | `"docs/chardon"` | report destination (relative to the project) | ✅ |
 | `ticketRegex` | `"(?:feat|fix)/(\\d+)"` | extract the ticket number from the branch | ✅ |
 | `toilExclusions` | `[]` | commands to ignore in toil detection | ✅ |
-| `tokenBudgetPerDay` | `0` | token budget (Batch 6) | ⏳ |
-| `gitlab` | `{enabled:false,…}` | GitLab status-line integration (Batch 3) | ⏳ |
+| `tokenBudgetPerDay` | `0` | daily token budget; the status line flags overruns | ✅ |
+| `gitlab` | `{enabled:false,…}` | optional GitLab status-line integration | ✅ |
 
 ### Environment variables
 
@@ -107,7 +111,7 @@ npm run typecheck  # tsc --noEmit
 Test strategy → [`TESTING.md`](TESTING.md). Hooks are tested as real subprocesses (stdin +
 env), and fail-open is enforced by tests. Working rules → [`CLAUDE.md`](CLAUDE.md).
 
-This repo is itself equipped with the shared [Ronce Racine](https://gitlab.com/tordu-jardin)
+This repo is itself equipped with the shared [Ronce Racine](https://github.com/ChariereFiedler/ronce-racine)
 base (`.claude/`: dev rules, skills, hooks).
 
 ## Architecture (overview)
@@ -145,3 +149,6 @@ Contributions welcome — see [`CONTRIBUTING.md`](CONTRIBUTING.md) and the worki
 [`CLAUDE.md`](CLAUDE.md). Security reports: [`SECURITY.md`](SECURITY.md).
 
 Licensed under the [MIT License](LICENSE).
+
+The header illustration (`assets/header.png`) is AI-generated and is **not** covered by the
+MIT License; it is provided for use with this project only.
