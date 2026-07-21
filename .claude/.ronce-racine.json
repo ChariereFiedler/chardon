@@ -1,8 +1,8 @@
 {
   "source": {
     "package": "ronce-racine",
-    "version": "0.5.0",
-    "contentHash": "sha256-79fceda4e8345c6df961602baad72e399008786da62173dbc3f380b0b42c2658"
+    "version": "0.5.2",
+    "contentHash": "sha256-5bb77412321b29125d6da71bd1fafc7441841526d2b2028cd5fce105146ccf85"
   },
   "installed": [
     "agent:code-reviewer.md",
