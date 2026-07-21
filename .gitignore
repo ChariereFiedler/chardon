@@ -1,0 +1,9 @@
+node_modules/
+*.db
+*.db-wal
+*.db-shm
+coverage/
+docs/chardon/
+.superpowers/
+.stryker-tmp/
+reports/

@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Least privilege: the workflow only reads the repo.
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      # Guard the runtime supply chain (dev-only advisories tracked via Dependabot).
+      - run: npm audit --omit=dev --audit-level=high
+      # The committed precompiled bundles must match the source.
+      - run: npm run build
+      - name: dist is in sync with source
+        run: git diff --exit-code -- dist
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # Reports the v8 coverage summary in the job log (no external upload).
+      - run: npm run coverage
+
+  mutation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # Guards against tests that execute the code without asserting on it.
+      - run: npm run mutation
+
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # Defence in depth alongside app-level redaction: scan history for leaked secrets.
+      - uses: gitleaks/gitleaks-action@v2

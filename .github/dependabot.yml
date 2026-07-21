@@ -1,0 +1,13 @@
+version: 2
+updates:
+  # Keep devDependencies current and surface CVEs automatically.
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+  # Keep GitHub Actions pinned versions up to date.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly

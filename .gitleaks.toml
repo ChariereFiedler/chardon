@@ -1,0 +1,11 @@
+title = "chardon gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Redaction tests and fixtures contain intentional fake secrets."
+paths = [
+  '''.*\.test\.ts$''',
+  '''test/fixtures/.*''',
+]
