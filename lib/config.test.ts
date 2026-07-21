@@ -57,8 +57,8 @@ describe("config", () => {
   });
 
   it("repoSlug strips the worktree suffix", () => {
-    expect(repoSlug("/home/x/mon-projet")).toBe("mon-projet");
-    expect(repoSlug("/home/x/mon-projet-wt-3")).toBe("mon-projet");
+    expect(repoSlug("/home/x/my-project")).toBe("my-project");
+    expect(repoSlug("/home/x/my-project-wt-3")).toBe("my-project");
   });
 
   it("transcriptSlug replaces / with - (generic path, no hardcoded project path)", () => {
