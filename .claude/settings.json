@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node --experimental-strip-types $CLAUDE_PROJECT_DIR/.claude/hooks/skill-reminder.ts"
+            "command": "node $CLAUDE_PROJECT_DIR/.claude/hooks/skill-reminder.mjs"
           }
         ]
       }
@@ -16,11 +16,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node --experimental-strip-types $CLAUDE_PROJECT_DIR/.claude/hooks/bash-npm-silent.ts"
+            "command": "node $CLAUDE_PROJECT_DIR/.claude/hooks/bash-npm-silent.mjs"
           },
           {
             "type": "command",
-            "command": "node --experimental-strip-types $CLAUDE_PROJECT_DIR/.claude/hooks/truncate-output.ts"
+            "command": "node $CLAUDE_PROJECT_DIR/.claude/hooks/truncate-output.mjs"
           }
         ]
       }
