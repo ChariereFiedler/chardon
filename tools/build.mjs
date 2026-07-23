@@ -25,6 +25,7 @@ const sources = [
   "scripts/roi-actions.ts",
   "scripts/purge.ts",
   "scripts/inspect.ts",
+  "scripts/skills.ts",
 ];
 const entryPoints = sources.map((p) => ({
   in: join(root, p),

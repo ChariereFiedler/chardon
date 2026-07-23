@@ -448,7 +448,7 @@ Agent-facing working rules → [`AGENTS.md`](AGENTS.md) and [`CLAUDE.md`](CLAUDE
 ```bash
 npm install        # dev tooling only, never needed at runtime
 npm run build      # refresh dist/*.mjs (the bundles are committed)
-npm test           # 395 tests
+npm test           # 414 tests
 npm run typecheck
 npm run lint
 ```
