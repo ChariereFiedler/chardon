@@ -6,6 +6,14 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    ignore:
+      # @types/node tracks the MINIMUM supported Node (engines >= 22), not the latest.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+      # TypeScript majors are adopted deliberately: the 7.x language server still
+      # breaks editor tooling here even though tsc passes (tried 2026-07-23).
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
   # Keep GitHub Actions pinned versions up to date.
   - package-ecosystem: github-actions
     directory: "/"
