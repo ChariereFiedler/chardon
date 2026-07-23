@@ -136,3 +136,19 @@ describe("db migration: token_usage.repo backfill (pre-686a939 DBs)", () => {
     expect(stderr).toMatch(/canary warning/);
   });
 });
+
+describe("db file permissions", () => {
+  it("creates the DB file owner-only even under a permissive umask", () => {
+    const prev = process.umask(0);
+    try {
+      process.env.CHARDON_DB = join(mkdtempSync(join(tmpdir(), "chardon-perm-")), "t.db");
+      const db = openDb();
+      closeDb(db);
+      const { statSync } = nodeRequire("node:fs") as typeof import("node:fs");
+      const mode = statSync(process.env.CHARDON_DB).mode & 0o777;
+      expect(mode).toBe(0o600);
+    } finally {
+      process.umask(prev);
+    }
+  });
+});

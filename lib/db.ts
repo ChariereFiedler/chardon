@@ -1,8 +1,9 @@
 import { createRequire } from "node:module";
-import { chmodSync, mkdirSync, readFileSync } from "node:fs";
+import { chmodSync, closeSync, mkdirSync, openSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { dbPath } from "./config.ts";
+import { debug } from "./debug.ts";
 
 // node:sqlite loaded via native require: prevents Vite/Vitest from trying to
 // resolve/bundle it (it would rewrite "node:sqlite" → "sqlite", which doesn't exist).
@@ -49,14 +50,17 @@ export function openDb(): ChardonDb {
   // ~/.claude, or a CHARDON_DB pointing into a directory that does not exist yet,
   // would otherwise fail to open and silently lose every write (hooks fail open).
   mkdirSync(dirname(path), { recursive: true });
-  const db = new DatabaseSync(path);
-  // Harden permissions: the DB holds command fragments and file paths. Owner-only
-  // (0600) so it is not world-readable on a shared machine. Best-effort — never throw.
+  // Harden permissions: the DB holds command fragments and file paths. The file
+  // is pre-created owner-only (0600) so no umask ever exposes it, not even
+  // between creation and a later chmod; the chmod then fixes pre-existing
+  // files created before this hardening. Best-effort — never throw.
   try {
+    closeSync(openSync(path, "a", 0o600));
     chmodSync(path, 0o600);
-  } catch {
-    // Ignore (e.g. path is a special file or filesystem without POSIX perms).
+  } catch (err) {
+    debug("db-permissions", err);
   }
+  const db = new DatabaseSync(path);
   // busy_timeout first: hooks and analysis scripts open the DB concurrently —
   // without it any lock causes the init to fail.
   db.exec("PRAGMA busy_timeout = 5000");
