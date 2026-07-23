@@ -2,10 +2,11 @@
 /**
  * Claude Code hook: PreToolUse (Bash) event.
  * Emits real-time nudges on stdout when CHARDON_ACTIVE=1: toil loops, failure
- * clusters, slow drains, and daily token budget thresholds. Each nudge fires at
+ * clusters, slow drains, daily token budget thresholds, and an advisory commit
+ * gate when a `git commit` starts while tests are red. Each nudge fires at
  * most once per day per repo/kind/target (deduped via the `nudges` table).
  *
- * @version 0.2.0
+ * @version 0.3.0
  * @last-reviewed 2026-07-23
  */
 
@@ -29,6 +30,14 @@ const BUDGET_WARN_RATIO = 0.8;
 const MS_PER_SECOND = 1000;
 /** Fixed nudge target for budget kinds (the kind already carries the threshold). */
 const BUDGET_TARGET = "tokens";
+/** Prefix identifying a commit about to run (advisory commit gate). */
+const GIT_COMMIT_PREFIX = "git commit";
+/** Minimal shape of a test-runner command, for the advisory commit gate. */
+const TEST_COMMAND_PATTERN = /\b(vitest|jest|playwright|pytest|cargo test|go test|(npm|pnpm|yarn|bun)( run)? test|npx (vitest|jest|playwright))\b/;
+/** Fixed nudge target for the commit gate (one advisory per day, whatever the trigger). */
+const COMMIT_GATE_TARGET = "commit";
+/** Max session Bash events scanned when looking for the last test run. */
+const SESSION_SCAN_LIMIT = 200;
 
 /** Alert for a toil loop, deduped per day on the looping command. */
 function toilAlert(db: ChardonDb, repo: string, today: string, config: ChardonConfig): string | null {
@@ -56,6 +65,59 @@ function slowAlert(db: ChardonDb, repo: string, today: string, cmd: string, conf
   if (!registerNudge(db, { date: today, repo, kind: "slow-cmd", target: cmd })) return null;
   const avgSeconds = Math.round(match.avgMs / MS_PER_SECOND);
   return `⚠️  [chardon] this command averages ${avgSeconds}s per run today; consider running it in the background.`;
+}
+
+/** The most recent test-shaped Bash command of the session, with its outcome. */
+function lastSessionTestRun(
+  db: ChardonDb,
+  repo: string,
+  sessionId: string,
+): { cmd: string; success: number } | null {
+  const rows = db
+    .prepare(
+      `SELECT json_extract(e.meta, '$.cmd') AS cmd,
+              e.success AS success
+       FROM events e
+       JOIN sessions s ON e.session_id = s.id
+       WHERE e.tool = 'Bash'
+         AND e.session_id = ?
+         AND s.repo = ?
+         AND json_extract(e.meta, '$.cmd') IS NOT NULL
+       ORDER BY e.id DESC
+       LIMIT ?`,
+    )
+    .all(sessionId, repo, SESSION_SCAN_LIMIT) as unknown as { cmd: string; success: number }[];
+  return rows.find((r) => TEST_COMMAND_PATTERN.test(r.cmd)) ?? null;
+}
+
+/**
+ * Advisory commit gate: when a `git commit` is about to run, warn once per day
+ * if tests are red: either a failing test-command cluster today whose latest
+ * session run is not green, or the session's last test run failed with no
+ * later success. Never blocking.
+ */
+function commitGateAlert(
+  db: ChardonDb,
+  repo: string,
+  today: string,
+  sessionId: string,
+  config: ChardonConfig,
+): string | null {
+  // A green run after the failures means the suite was fixed: stay silent.
+  // Normal TDD (red, red, red, green, commit) must never trigger the gate.
+  const lastRun = sessionId ? lastSessionTestRun(db, repo, sessionId) : null;
+  const lastRunIsGreen = lastRun !== null && lastRun.success !== 0;
+
+  const failingTests = detectFailingCommands(db, repo, DAY_WINDOW_HOURS, config.thresholds.failMin)
+    .filter((c) => TEST_COMMAND_PATTERN.test(c.cmd));
+  if (failingTests.length > 0 && !lastRunIsGreen) {
+    const top = failingTests[0];
+    if (!registerNudge(db, { date: today, repo, kind: "commit-gate", target: COMMIT_GATE_TARGET })) return null;
+    return `⚠️  [chardon] tests failed ${top.count} times today (${top.cmd}); commit anyway?`;
+  }
+  if (lastRun?.success !== 0) return null;
+  if (!registerNudge(db, { date: today, repo, kind: "commit-gate", target: COMMIT_GATE_TARGET })) return null;
+  return `⚠️  [chardon] the last test run this session failed (${lastRun.cmd}); commit anyway?`;
 }
 
 /** Alert once per day per threshold (80%, 100%) when today's tokens cross the budget. */
@@ -111,11 +173,17 @@ export function run(input: unknown, env: NodeJS.ProcessEnv, now: Date = new Date
     // Parse the PreToolUse payload.
     let toolName = "";
     let command = "";
+    let sessionId = "";
     try {
       if (typeof input !== "object" || input === null) return;
-      const event = input as { tool_name?: string; tool_input?: { command?: string } };
+      const event = input as {
+        session_id?: string;
+        tool_name?: string;
+        tool_input?: { command?: string };
+      };
       toolName = event.tool_name ?? "";
       command = String(event.tool_input?.command ?? "");
+      sessionId = String(event.session_id ?? "");
     } catch {
       return;
     }
@@ -134,6 +202,7 @@ export function run(input: unknown, env: NodeJS.ProcessEnv, now: Date = new Date
         toilAlert(db, repo, today, config),
         cmd ? failingAlert(db, repo, today, cmd, config) : null,
         cmd ? slowAlert(db, repo, today, cmd, config) : null,
+        cmd.startsWith(GIT_COMMIT_PREFIX) ? commitGateAlert(db, repo, today, sessionId, config) : null,
         budgetAlert(db, repo, today, projectDir, config),
       ].filter((a): a is string => a !== null);
 

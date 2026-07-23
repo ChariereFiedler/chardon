@@ -340,6 +340,147 @@ describe("notify hook: real-time nudges", () => {
   });
 });
 
+describe("notify hook: advisory commit gate", () => {
+  const FIXED_NOW = new Date("2026-07-23T10:00:00Z");
+
+  let dbFile: string, project: string, repo: string;
+  let savedDb: string | undefined;
+
+  beforeEach(() => {
+    dbFile = join(mkdtempSync(join(tmpdir(), "chardon-")), "t.db");
+    project = mkdtempSync(join(tmpdir(), "proj-"));
+    repo = basename(project);
+    savedDb = process.env.CHARDON_DB;
+    process.env.CHARDON_DB = dbFile;
+  });
+
+  afterEach(() => {
+    if (savedDb !== undefined) {
+      process.env.CHARDON_DB = savedDb;
+    } else {
+      delete process.env.CHARDON_DB;
+    }
+  });
+
+  function captureRun(payload: unknown, envOverride: Record<string, string | undefined> = {}): string {
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      CLAUDE_PROJECT_DIR: project,
+      CHARDON_ACTIVE: "1",
+      ...envOverride,
+    };
+    for (const [k, v] of Object.entries(envOverride)) {
+      if (v === undefined) delete env[k];
+    }
+    const chunks: string[] = [];
+    const origWrite = process.stdout.write.bind(process.stdout);
+    (process.stdout as any).write = (chunk: string) => {
+      chunks.push(chunk);
+      return true;
+    };
+    try {
+      run(payload, env, FIXED_NOW);
+    } finally {
+      (process.stdout as any).write = origWrite;
+    }
+    return chunks.join("");
+  }
+
+  function writeProjectConfig(config: object): void {
+    writeFileSync(join(project, ".chardon.json"), JSON.stringify(config));
+  }
+
+  function commitPayload(sessionId = "s1"): object {
+    return {
+      tool_name: "Bash",
+      session_id: sessionId,
+      tool_input: { command: 'git commit -m "feat: x"' },
+    };
+  }
+
+  /** Seeds `count` test-command events in session s1 (all with the same outcome). */
+  function seedTestEvents(cmd: string, count: number, success: boolean): void {
+    const db = openDb();
+    writeSession(db, { id: "s1", repo, sessionType: "main" });
+    for (let i = 0; i < count; i++) {
+      writeEvent(db, { sessionId: "s1", tool: "Bash", success, meta: { cmd } });
+    }
+    closeDb(db);
+  }
+
+  it("warns on git commit when a test command failed repeatedly today", () => {
+    writeProjectConfig({ toilExclusions: ["npm test"] });
+    seedTestEvents("npm test", 3, false);
+
+    const out = captureRun(commitPayload());
+    expect(out).toContain("[chardon] tests failed 3 times today (npm test); commit anyway?");
+  });
+
+  it("is silent for a non-commit command with the same red history", () => {
+    writeProjectConfig({ toilExclusions: ["npm test"] });
+    seedTestEvents("npm test", 3, false);
+
+    expect(captureRun({ tool_name: "Bash", session_id: "s1", tool_input: { command: "ls" } })).toBe("");
+  });
+
+  it("is silent on git commit when today's tests are green", () => {
+    writeProjectConfig({ toilExclusions: ["npm test"] });
+    seedTestEvents("npm test", 3, true);
+
+    expect(captureRun(commitPayload())).toBe("");
+  });
+
+  it("ignores failing non-test commands", () => {
+    writeProjectConfig({ toilExclusions: ["ls /missing"] });
+    seedTestEvents("ls /missing", 3, false);
+
+    expect(captureRun(commitPayload())).toBe("");
+  });
+
+  it("dedupes the commit warning within the same day", () => {
+    writeProjectConfig({ toilExclusions: ["npm test"] });
+    seedTestEvents("npm test", 3, false);
+
+    expect(captureRun(commitPayload())).toMatch(/commit anyway\?/);
+    expect(captureRun(commitPayload())).toBe("");
+  });
+
+  it("warns on git commit when the session's last test run failed below cluster threshold", () => {
+    seedTestEvents("vitest run", 1, false);
+
+    const out = captureRun(commitPayload());
+    expect(out).toContain("[chardon] the last test run this session failed (vitest run); commit anyway?");
+  });
+
+  it("stays silent when the last session test failure was followed by a success", () => {
+    const db = openDb();
+    writeSession(db, { id: "s1", repo, sessionType: "main" });
+    writeEvent(db, { sessionId: "s1", tool: "Bash", success: false, meta: { cmd: "vitest run" } });
+    writeEvent(db, { sessionId: "s1", tool: "Bash", success: true, meta: { cmd: "vitest run" } });
+    closeDb(db);
+
+    expect(captureRun(commitPayload())).toBe("");
+  });
+
+  it("emits no commit warning without CHARDON_ACTIVE", () => {
+    writeProjectConfig({ toilExclusions: ["npm test"] });
+    seedTestEvents("npm test", 3, false);
+
+    expect(captureRun(commitPayload(), { CHARDON_ACTIVE: undefined })).toBe("");
+  });
+
+  it("fails open on an unopenable DB with a commit payload (subprocess)", () => {
+    const brokenDb = mkdtempSync(join(tmpdir(), "chardon-broken-"));
+    const out = runHookCapture(JSON.stringify(commitPayload()), {
+      CHARDON_DB: brokenDb,
+      CLAUDE_PROJECT_DIR: project,
+      CHARDON_ACTIVE: "1",
+    });
+    expect(out.code).toBe(0);
+    expect(out.stdout).toBe("");
+  });
+});
+
 describe("hooks.json wiring", () => {
   it("guards the notify spawn behind CHARDON_ACTIVE at the shell level", () => {
     const wiringPath = join(dirname(fileURLToPath(import.meta.url)), "hooks.json");
