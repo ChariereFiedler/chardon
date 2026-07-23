@@ -47,7 +47,7 @@ Type these in the **Claude Code prompt** (they are slash commands, not shell com
 ```
 
 `chardon@chardon` means "the plugin named chardon, from the marketplace named chardon";
-both happen to share the name. The eight commands and the four collection hooks are wired
+both happen to share the name. The nine commands and the four collection hooks are wired
 automatically; no file to copy, no build step, no dependency to install. The only
 requirement is **Node 22 or later** on your `PATH` (`node -v` to check): the hooks are
 plain-`node` precompiled bundles, and `node:sqlite` ships with Node.
@@ -180,6 +180,7 @@ All typed in the Claude Code prompt.
 | `/chardon-drop <id>` | drop a proposal for good |
 | `/chardon-inspect` | show what is stored for the current repo |
 | `/chardon-purge` | delete the current repo's history older than the retention window |
+| `/chardon-skills` | mine your recurring procedures and draft skills for them |
 
 ## Data & privacy
 
@@ -433,7 +434,7 @@ Remove the `statusLine` block from `settings.json` if you added it. Your data st
 ```
 hooks/     SessionStart · PreToolUse(Bash) · PostToolUse · Stop, all fail-open
   └─> lib/     db (SQLite) · redact · patterns (detection) · improve · roi · config · git
-scripts/   analyze-daily · analyze-weekly · statusline · improve · inspect · purge · roi-actions
+scripts/   analyze-daily · analyze-weekly · statusline · improve · skills · inspect · purge · roi-actions
 dist/      the above, precompiled and committed: what actually runs
 ```
 
@@ -448,7 +449,7 @@ Agent-facing working rules → [`AGENTS.md`](AGENTS.md) and [`CLAUDE.md`](CLAUDE
 ```bash
 npm install        # dev tooling only, never needed at runtime
 npm run build      # refresh dist/*.mjs (the bundles are committed)
-npm test           # 414 tests
+npm test           # 416 tests
 npm run typecheck
 npm run lint
 ```

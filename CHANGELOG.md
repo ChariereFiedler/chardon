@@ -8,6 +8,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `/chardon-skills`: mines recurring work procedures from the events history
+  (closed step patterns across sessions and repos) and proposes skills for
+  them, drafted by `claude -p` when the Claude Code CLI is available, with a
+  deterministic skeleton fallback; proposals join the apply/measure/drop loop.
+
 - Configurable skill loop: friction-to-skill mappings move to a `skillMap`
   config key (regex rules vetted), `consider-skill` only proposes skills you
   actually have installed, uncovered chronic frictions become `create-skill`

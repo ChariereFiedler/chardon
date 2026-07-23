@@ -127,6 +127,14 @@ so the digest can show `skeleton: <path>`. When the inventory scan fails or
 finds nothing, the plain `consider-skill` behavior is kept on purpose: an
 unreadable inventory must not requalify every suggestion blindly.
 
+`/chardon-skills` (`scripts/skills.ts`) goes one step further than the friction map:
+`lib/procedures.ts` mines the last 14 days of events for recurring step sequences
+(cmd_class n-grams plus edit-directory steps, closed patterns, three or more
+sessions of support, cross-repo patterns labeled global), and `lib/skill-writer.ts`
+drafts a skill for each candidate through `claude -p` (deterministic skeleton
+fallback when the CLI is absent). Proposals persist as `infer-skill` actions whose
+ROI is re-measured against the mined support, not the friction count.
+
 `persistActions` will not re-propose a `(repo, kind, target)` that was `dropped` or
 `measured` without effect (self-tuning); `promote-to-canonical` rows go through the
 same dedupe, persisted in each repo where the digest runs. The digest also carries
