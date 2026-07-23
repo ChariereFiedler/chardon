@@ -21,6 +21,19 @@ const PATTERNS: [RegExp, string][] = [
   [/\bnpm_[A-Za-z0-9]{36}\b/g, "[REDACTED]"],
   // Slack tokens
   [/\bxox[baprs]-[A-Za-z0-9-]{10,}/g, "[REDACTED]"],
+  // Google API keys
+  [/\bAIza[0-9A-Za-z_-]{35}\b/g, "[REDACTED]"],
+  // Basic-auth flags with a user:pass value: `-u user:pass`, `--user=user:pass`.
+  // The value must contain a colon, so `docker run -u root` stays untouched.
+  [/((?:^|\s)(?:-u|--user)[ =])[^\s:@]+:\S+/g, "$1[REDACTED]"],
+  // sshpass inline password
+  [/(\bsshpass\s+-p\s*)\S+/g, "$1[REDACTED]"],
+  // Lowercase assignments whose name is a sensitive word, or an `_`/`-`-separated
+  // compound ending in one: `token=…`, `api_key=…` — but not `monkey=…`.
+  [
+    /\b((?:[a-z0-9]+[_-])*(?:token|key|secret|password|passwd|pass|pwd|auth|credential)s?)=("[^"]*"|'[^']*'|\S+)/g,
+    "$1=[REDACTED]",
+  ],
   // Secrets passed as a bare CLI argument or bearer header, whatever their shape:
   // `--token abc`, `--api-key abc`, `Authorization: Bearer abc`.
   [

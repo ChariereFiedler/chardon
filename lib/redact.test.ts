@@ -279,3 +279,47 @@ describe("redact", () => {
     );
   });
 });
+
+describe("redact — adversarial review additions", () => {
+  it("redacts curl -u user:pass credentials", () => {
+    expect(redactSecrets("curl -u admin:hunter2 https://api.example.com")).toBe(
+      "curl -u [REDACTED] https://api.example.com",
+    );
+  });
+
+  it("redacts curl --user=user:pass credentials", () => {
+    expect(redactSecrets("curl --user=admin:hunter2 https://x.io")).toBe(
+      "curl --user=[REDACTED] https://x.io",
+    );
+  });
+
+  it("does NOT redact -u/-p flags without a credential shape (docker)", () => {
+    const cmd = "docker run -u root -p 8080:80 nginx";
+    expect(redactSecrets(cmd)).toBe(cmd);
+  });
+
+  it("redacts an sshpass -p password", () => {
+    expect(redactSecrets("sshpass -p hunter2 ssh deploy@host")).toBe(
+      "sshpass -p [REDACTED] ssh deploy@host",
+    );
+  });
+
+  it("redacts a lowercase secret assignment", () => {
+    expect(redactSecrets("token=abc123 ./run.sh")).toBe("token=[REDACTED] ./run.sh");
+  });
+
+  it("redacts a lowercase compound assignment (api_key=)", () => {
+    expect(redactSecrets("api_key=xyz42 npm start")).toBe("api_key=[REDACTED] npm start");
+  });
+
+  it("does NOT redact a word merely ending in a sensitive suffix (monkey=)", () => {
+    const cmd = "monkey=banana ./feed.sh";
+    expect(redactSecrets(cmd)).toBe(cmd);
+  });
+
+  it("redacts a Google API key (AIza…)", () => {
+    expect(redactSecrets("echo AIzaSyD-abcdefghijklmnopqrstuvwxyz01234 > f")).toBe(
+      "echo [REDACTED] > f",
+    );
+  });
+});
