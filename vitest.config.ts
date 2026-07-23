@@ -1,8 +1,13 @@
 import { defineConfig } from "vitest/config";
 
+// Hooks are tested as real subprocesses (node --experimental-strip-types); under a
+// fully parallel run their spawn cost can exceed the 5s default and time out flakily.
+const SUBPROCESS_SAFE_TIMEOUT_MS = 30_000;
+
 export default defineConfig({
   test: {
     environment: "node",
+    testTimeout: SUBPROCESS_SAFE_TIMEOUT_MS,
     include: [
       "lib/**/*.test.ts",
       "hooks/**/*.test.ts",
