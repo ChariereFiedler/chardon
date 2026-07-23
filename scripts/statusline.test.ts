@@ -2,7 +2,9 @@ import { mkdtempSync, mkdirSync, writeFileSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it, expect } from "vitest";
-import { renderStatusline, projectName, countWorktrees, tokensToday, windowSizeForModel, parseTranscriptUsage, countSubagents, isValidProjectId } from "./statusline.ts";
+import { renderStatusline, renderSegments, MONITORING_SEGMENTS, ALL_SEGMENTS, collectGitlab, projectName, countWorktrees, tokensToday, windowSizeForModel, parseTranscriptUsage, countSubagents, isValidProjectId } from "./statusline.ts";
+import type { StatuslineData } from "./statusline.ts";
+import type { ChardonConfig } from "../lib/config.ts";
 import { openDb, closeDb } from "../lib/db.ts";
 
 describe("renderStatusline", () => {
@@ -40,6 +42,111 @@ describe("renderStatusline", () => {
 
   it("shows GitLab only when provided", () => {
     expect(renderStatusline({ project: "p", branch: "b", subagents: 0, worktrees: 0, gitlab: { mrs: 3, issues: 7 } })).toContain("📥 3");
+  });
+});
+
+describe("renderSegments", () => {
+  const full: StatuslineData = {
+    project: "chardon",
+    branch: "main",
+    model: "opus",
+    ctxUsed: 40,
+    ctxMax: 200,
+    subagents: 2,
+    worktrees: 1,
+    tokensToday: 10,
+    tokenBudget: 100,
+    gitlab: { mrs: 3, issues: 7 },
+  };
+
+  it("renders only the monitoring segments by default (no project/branch/context)", () => {
+    const s = renderSegments(full, MONITORING_SEGMENTS);
+    expect(s).toBe("💰 10/100 · 🤖 2 · 🌳 1 · 📥 3📋 7");
+    expect(s).not.toContain("chardon");
+    expect(s).not.toContain("main");
+    expect(s).not.toContain("🧠");
+  });
+
+  it("renders an explicit list in the given order, including generic segments", () => {
+    expect(renderSegments(full, ["branch", "project", "context"])).toBe("main · chardon · 🧠 opus 40/200");
+  });
+
+  it("ignores unknown segment names silently", () => {
+    expect(renderSegments(full, ["nope", "project", "wat"])).toBe("chardon");
+  });
+
+  it("omits segments whose data is absent or zero", () => {
+    const empty: StatuslineData = { project: "p", branch: "b", subagents: 0, worktrees: 0 };
+    expect(renderSegments(empty, MONITORING_SEGMENTS)).toBe("");
+    expect(renderSegments(empty, ["project", "tokens", "branch"])).toBe("p · b");
+  });
+
+  it("keeps renderStatusline equivalent to rendering every segment", () => {
+    expect(renderStatusline(full)).toBe(renderSegments(full, ALL_SEGMENTS));
+  });
+});
+
+describe("collectGitlab", () => {
+  const TOKEN_ENV = "CHARDON_TEST_GITLAB_TOKEN";
+
+  function gitlabConfig(overrides: Partial<ChardonConfig["gitlab"]> = {}): ChardonConfig {
+    return {
+      outDir: ".",
+      ticketRegex: "",
+      tokenBudgetPerDay: 0,
+      retentionDays: 90,
+      thresholds: { toilMin: 3, retryMin: 4, coldMin: 3, failMin: 3, slowMin: 3, slowMs: 30_000 },
+      toilExclusions: [],
+      gitlab: { enabled: true, projectId: "123", tokenEnv: TOKEN_ENV, ...overrides },
+    };
+  }
+
+  it("returns undefined when curl fails or times out, without throwing", () => {
+    process.env[TOKEN_ENV] = "tok";
+    const failing = () => {
+      throw new Error("curl: timeout");
+    };
+    expect(collectGitlab(gitlabConfig(), failing)).toBeUndefined();
+  });
+
+  it("returns undefined on a non-array JSON body (API error payload)", () => {
+    process.env[TOKEN_ENV] = "tok";
+    const errorBody = () => JSON.stringify({ message: "401 Unauthorized" });
+    expect(collectGitlab(gitlabConfig(), errorBody)).toBeUndefined();
+  });
+
+  it("returns undefined on an unparseable body", () => {
+    process.env[TOKEN_ENV] = "tok";
+    expect(collectGitlab(gitlabConfig(), () => "<html>gateway timeout</html>")).toBeUndefined();
+  });
+
+  it("parses MR and issue counts from the injected runner", () => {
+    process.env[TOKEN_ENV] = "tok";
+    const runner = (args: string[]) =>
+      args.includes("-sI") ? "HTTP/2 200\r\nx-total: 7\r\n" : JSON.stringify([{}, {}, {}]);
+    expect(collectGitlab(gitlabConfig(), runner)).toEqual({ mrs: 3, issues: 7 });
+  });
+
+  it("returns undefined when disabled, token missing, or project id invalid", () => {
+    process.env[TOKEN_ENV] = "tok";
+    const runner = () => "[]";
+    expect(collectGitlab(gitlabConfig({ enabled: false }), runner)).toBeUndefined();
+    expect(collectGitlab(gitlabConfig({ projectId: "12; rm -rf ~" }), runner)).toBeUndefined();
+    delete process.env[TOKEN_ENV];
+    expect(collectGitlab(gitlabConfig(), runner)).toBeUndefined();
+  });
+
+  it("still renders the line when the GitLab collector fails", () => {
+    process.env[TOKEN_ENV] = "tok";
+    const failing = () => {
+      throw new Error("network down");
+    };
+    const gitlab = collectGitlab(gitlabConfig(), failing);
+    const line = renderSegments(
+      { project: "p", branch: "b", subagents: 1, worktrees: 0, gitlab },
+      MONITORING_SEGMENTS,
+    );
+    expect(line).toBe("🤖 1");
   });
 });
 

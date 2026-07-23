@@ -1,9 +1,13 @@
 /**
- * Pure status-line renderer — no I/O, no side effects.
- * Takes a StatuslineData snapshot and returns a single ANSI-friendly line.
+ * Composable status-line segments: each segment is a pure render (data →
+ * string), assembled into a single ANSI-friendly line.
+ *
+ * CLI: `node statusline.mjs [segment...]`. With explicit names, renders
+ * exactly those segments in order; without any, renders only the monitoring
+ * segments (tokens, subagents, worktrees, gitlab). Unknown names are ignored.
  *
  * Also exports collectors (projectName, countWorktrees, tokensToday,
- * countSubagents) and a main() entry that assembles + prints the line.
+ * countSubagents, collectGitlab) and a main() entry that assembles + prints.
  */
 
 import { execSync, execFileSync } from "node:child_process";
@@ -34,39 +38,58 @@ const SEPARATOR = " · ";
 /** Matches a project dir name ending in `-wt-<digits>` (worktree clone). */
 const WORKTREE_SUFFIX = /-wt-\d+$/;
 
+// ---------------------------------------------------------------------------
+// Segments: each one is a pure render (data → string or undefined when empty)
+// ---------------------------------------------------------------------------
+
+type SegmentRenderer = (d: StatuslineData) => string | undefined;
+
+const SEGMENT_RENDERERS: Record<string, SegmentRenderer> = {
+  project: (d) => d.project || undefined,
+  branch: (d) => d.branch || undefined,
+  context: (d) =>
+    d.model !== undefined && d.ctxUsed !== undefined && d.ctxMax !== undefined
+      ? `🧠 ${d.model} ${d.ctxUsed}/${d.ctxMax}`
+      : undefined,
+  subagents: (d) => (d.subagents > 0 ? `🤖 ${d.subagents}` : undefined),
+  worktrees: (d) => (d.worktrees > 0 ? `🌳 ${d.worktrees}` : undefined),
+  tokens: (d) => {
+    if (d.tokenBudget === undefined || d.tokenBudget <= 0) return undefined;
+    const over = (d.tokensToday ?? 0) > d.tokenBudget ? " ⚠" : "";
+    return `💰 ${d.tokensToday ?? 0}/${d.tokenBudget}${over}`;
+  },
+  gitlab: (d) => (d.gitlab !== undefined ? `📥 ${d.gitlab.mrs}📋 ${d.gitlab.issues}` : undefined),
+};
+
+/** Every known segment, in the legacy full-line order. */
+export const ALL_SEGMENTS = ["project", "branch", "context", "subagents", "worktrees", "tokens", "gitlab"] as const;
+
 /**
- * Renders a compact status line from the given data.
- * Sections are omitted when their data is absent or zero; separators are
- * never left dangling.
+ * Chardon-specific monitoring segments: the default CLI output. Project,
+ * branch, and context are generic; users already get them elsewhere.
+ */
+export const MONITORING_SEGMENTS = ["tokens", "subagents", "worktrees", "gitlab"] as const;
+
+/**
+ * Renders the named segments in the given order, joined by the separator.
+ * Empty segments are omitted and unknown names are silently ignored: a
+ * status line must never error.
+ */
+export function renderSegments(d: StatuslineData, names: readonly string[]): string {
+  const sections: string[] = [];
+  for (const name of names) {
+    const rendered = SEGMENT_RENDERERS[name]?.(d);
+    if (rendered !== undefined) sections.push(rendered);
+  }
+  return sections.join(SEPARATOR);
+}
+
+/**
+ * Renders the full status line (every segment) from the given data.
+ * Kept for compatibility; implemented on top of the segment renderers.
  */
 export function renderStatusline(d: StatuslineData): string {
-  const sections: string[] = [];
-
-  sections.push(d.project);
-  sections.push(d.branch);
-
-  if (d.model !== undefined && d.ctxUsed !== undefined && d.ctxMax !== undefined) {
-    sections.push(`🧠 ${d.model} ${d.ctxUsed}/${d.ctxMax}`);
-  }
-
-  if (d.subagents > 0) {
-    sections.push(`🤖 ${d.subagents}`);
-  }
-
-  if (d.worktrees > 0) {
-    sections.push(`🌳 ${d.worktrees}`);
-  }
-
-  if (d.tokenBudget !== undefined && d.tokenBudget > 0) {
-    const over = (d.tokensToday ?? 0) > d.tokenBudget ? " ⚠" : "";
-    sections.push(`💰 ${d.tokensToday ?? 0}/${d.tokenBudget}${over}`);
-  }
-
-  if (d.gitlab !== undefined) {
-    sections.push(`📥 ${d.gitlab.mrs}📋 ${d.gitlab.issues}`);
-  }
-
-  return sections.join(SEPARATOR);
+  return renderSegments(d, ALL_SEGMENTS);
 }
 
 // ---------------------------------------------------------------------------
@@ -335,8 +358,40 @@ export function isValidProjectId(id: string): boolean {
   return /^\d+$/.test(id);
 }
 
-function collectGitlab(
+/**
+ * Runs one curl request and returns its raw stdout. `stdinInput` carries the
+ * curl config file (the token header), never passed via argv.
+ */
+export type CurlRunner = (args: string[], stdinInput: string) => string;
+
+/** Overall subprocess timeout for one curl call (milliseconds). */
+const CURL_PROCESS_TIMEOUT_MS = 5000;
+
+/** curl-side `--max-time` cap for one request (seconds). */
+const CURL_MAX_TIME_S = "3";
+
+// execFileSync passes args straight to curl: no shell, no interpolation,
+// so a hostile `.chardon.json` cannot inject a command. The token goes
+// through a curl config file on stdin rather than argv, which any local
+// process could read via /proc or `ps`.
+function defaultCurlRunner(args: string[], stdinInput: string): string {
+  return execFileSync("curl", [...args, "--config", "-"], {
+    input: stdinInput,
+    encoding: "utf-8",
+    stdio: ["pipe", "pipe", "ignore"],
+    timeout: CURL_PROCESS_TIMEOUT_MS,
+  });
+}
+
+/**
+ * Collects open MR and issue counts from the GitLab API. Best-effort: any
+ * failure (curl error, timeout, non-array body) returns undefined and the
+ * status line simply omits the GitLab segment. JSON is parsed in-process
+ * (no `jq` dependency). The runner is injectable for tests.
+ */
+export function collectGitlab(
   config: ReturnType<typeof loadConfig>,
+  runCurl: CurlRunner = defaultCurlRunner,
 ): { mrs: number; issues: number } | undefined {
   if (!config.gitlab.enabled) return undefined;
   try {
@@ -345,24 +400,17 @@ function collectGitlab(
     const projectId = config.gitlab.projectId;
     if (!isValidProjectId(projectId)) return undefined;
 
-    // execFileSync passes args straight to curl — no shell, no interpolation,
-    // so a hostile `.chardon.json` cannot inject a command. JSON parsed in-process
-    // (no `jq` dependency). The token goes through a curl config file on stdin
-    // rather than argv, which any local process could read via /proc or `ps`.
     const base = `https://gitlab.com/api/v4/projects/${projectId}`;
-    const curl = (args: string[]): string =>
-      execFileSync("curl", [...args, "--config", "-"], {
-        input: `header = "PRIVATE-TOKEN: ${token}"\n`,
-        encoding: "utf-8",
-        stdio: ["pipe", "pipe", "ignore"],
-        timeout: 5000,
-      });
+    const tokenHeader = `header = "PRIVATE-TOKEN: ${token}"\n`;
+    const curl = (args: string[]): string => runCurl([...args, "--max-time", CURL_MAX_TIME_S], tokenHeader);
 
-    const mrBody = curl(["-s", "--max-time", "3", `${base}/merge_requests?state=opened&per_page=100`]);
+    const mrBody = curl(["-s", `${base}/merge_requests?state=opened&per_page=100`]);
     const parsed = JSON.parse(mrBody) as unknown;
-    const mrs = Array.isArray(parsed) ? parsed.length : 0;
+    // A non-array body is an API error payload (e.g. {"message": "401 ..."}).
+    if (!Array.isArray(parsed)) return undefined;
+    const mrs = parsed.length;
 
-    const issueHeaders = curl(["-sI", "--max-time", "3", `${base}/issues?state=opened&per_page=1`]);
+    const issueHeaders = curl(["-sI", `${base}/issues?state=opened&per_page=1`]);
     const match = issueHeaders.match(/^x-total:\s*(\d+)/im);
     const issues = match ? Number.parseInt(match[1], 10) : 0;
 
@@ -393,12 +441,16 @@ function fallbackConfig(): ReturnType<typeof loadConfig> {
 // ---------------------------------------------------------------------------
 
 /**
- * Assembles StatuslineData from all collectors and prints the rendered line.
- * Every collector is best-effort — a failure returns a sensible default.
- * This function must never throw (a crashed status line breaks the UI).
+ * Assembles StatuslineData from the collectors and prints the requested
+ * segments. With explicit segment names, renders exactly those in order;
+ * without any, renders only the monitoring segments. Every collector is
+ * best-effort: a failure returns a sensible default. This function must
+ * never throw (a crashed status line breaks the UI).
  */
-export function main(): void {
+export function main(segmentNames: readonly string[] = process.argv.slice(2)): void {
   try {
+    const names = segmentNames.length > 0 ? segmentNames : MONITORING_SEGMENTS;
+    const wanted = new Set(names);
     const projectDir = process.env.CLAUDE_PROJECT_DIR ?? process.cwd();
 
     // Project name
@@ -428,8 +480,9 @@ export function main(): void {
       }
     })();
 
-    // Transcript context (model + ctx tokens)
+    // Transcript context (model + ctx tokens), only when requested
     const ctx = (() => {
+      if (!wanted.has("context")) return null;
       try {
         return readTranscriptContext(projectDir);
       } catch {
@@ -462,25 +515,28 @@ export function main(): void {
         ? "worktree"
         : "main";
 
-    // Token budget from DB
+    // Token budget from DB, only when requested
     let todayTokens: number | undefined;
     let tokenBudget: number | undefined;
-    try {
-      const today = new Date().toISOString().slice(0, 10);
-      const repo = repoSlug(projectDir);
-      const db = openDb();
+    if (wanted.has("tokens")) {
       try {
-        todayTokens = tokensToday(db, repo, origin, today);
-        tokenBudget = config.tokenBudgetPerDay > 0 ? config.tokenBudgetPerDay : undefined;
-      } finally {
-        closeDb(db);
+        const today = new Date().toISOString().slice(0, 10);
+        const repo = repoSlug(projectDir);
+        const db = openDb();
+        try {
+          todayTokens = tokensToday(db, repo, origin, today);
+          tokenBudget = config.tokenBudgetPerDay > 0 ? config.tokenBudgetPerDay : undefined;
+        } finally {
+          closeDb(db);
+        }
+      } catch {
+        // Best-effort: omit token section on failure.
       }
-    } catch {
-      // Best-effort — omit token section on failure.
     }
 
-    // GitLab (optional, only when enabled)
+    // GitLab (optional, only when enabled and requested)
     const gitlab = (() => {
+      if (!wanted.has("gitlab")) return undefined;
       try {
         return collectGitlab(config);
       } catch {
@@ -509,10 +565,10 @@ export function main(): void {
       data.gitlab = gitlab;
     }
 
-    console.log(renderStatusline(data));
+    console.log(renderSegments(data, names));
   } catch {
-    // Last-resort: print a minimal line rather than crashing.
-    console.log("? · ?");
+    // Last-resort: print an empty line rather than crashing.
+    console.log("");
   }
 }
 

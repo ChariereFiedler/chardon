@@ -19,10 +19,12 @@ describe("dist bundles — CLI-entry & legacy DB regressions", () => {
     execFileSync("node", [join(root, "tools", "build.mjs")], { stdio: "ignore" });
   }, 60_000);
 
-  // The bundle is statusline.mjs, but the old guard only matched .ts/.js — so main()
-  // never ran and the status line came out blank through the plugin.
+  // The bundle is statusline.mjs, but the old guard only matched .ts/.js, so main()
+  // never ran and the status line came out blank through the plugin. Explicit
+  // segments (project, branch) always render, unlike the monitoring-only default
+  // which is legitimately empty on a fresh DB.
   it("statusline.mjs runs main() and emits a non-empty line", () => {
-    const out = execFileSync("node", [STATUSLINE_BUNDLE], {
+    const out = execFileSync("node", [STATUSLINE_BUNDLE, "project", "branch"], {
       env: { ...process.env, CHARDON_DB: join(mkdtempSync(join(tmpdir(), "chardon-sl-")), "sl.db"), CLAUDE_PROJECT_DIR: root },
       encoding: "utf-8",
       stdio: ["ignore", "pipe", "ignore"],
