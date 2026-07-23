@@ -34,7 +34,7 @@ export interface DailyReportData {
     drift: boolean;
     costUsd?: number;
   };
-  health?: { ok: number; failed: number };
+  health?: { ok: number; failed: number; lastError?: string | null };
 }
 
 // ---------------------------------------------------------------------------
@@ -76,6 +76,9 @@ export function renderDailyReport(data: DailyReportData): string {
       ? `⚠ ${health.failed} silent collection failure(s) today (${health.ok} ok): run with CHARDON_DEBUG=1 to see them`
       : `🟢 healthy: ${health.ok} write(s) recorded, 0 failures`,
   );
+  if (health.failed > 0 && health.lastError) {
+    sections.push(`last error: ${health.lastError}`);
+  }
   sections.push("");
 
   if (!hasPatterns) {

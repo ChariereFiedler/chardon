@@ -7,7 +7,11 @@
 -- (retentionDays). Highest sensitivity is Internal — no secrets or credentials, ever.
 --   Public   : repo, tool, success, ts, counts, token totals, dates, status
 --   Internal : git_branch, ticket_iid, events.meta (cmd is REDACTED via lib/redact.ts
---              then truncated; file paths truncated to 80 chars; skill/subagent names)
+--              then truncated; file paths truncated to 80 chars; skill/subagent names),
+--              hook_health.last_error (redacted via lib/redact.ts then truncated);
+--              purge_log (purge timestamps, retention window, per-table removal counts
+--              · no PII);
+--              nudges.kind, nudges.target (may hold a redacted command)
 -- Any new column MUST be classified here before it ships.
 
 PRAGMA journal_mode = WAL;
@@ -99,14 +103,38 @@ CREATE TABLE IF NOT EXISTS actions (
 CREATE INDEX IF NOT EXISTS idx_actions_repo ON actions(repo);
 CREATE INDEX IF NOT EXISTS idx_actions_status ON actions(status);
 
+-- Real-time nudge dedupe (Internal): one row per alert emitted by the notify
+-- hook, keyed by day/repo/kind/target so each alert fires at most once per day.
+CREATE TABLE IF NOT EXISTS nudges (
+  date   TEXT NOT NULL,                           -- YYYY-MM-DD
+  repo   TEXT NOT NULL,
+  kind   TEXT NOT NULL,                           -- toil | failing-cmd | slow-cmd | budget-80 | budget-100
+  target TEXT NOT NULL,                           -- redacted command, or a fixed marker for budget kinds
+  PRIMARY KEY (date, repo, kind, target)
+);
+
+-- Audit trail of retention purges (Internal, no PII): one row per purge run,
+-- whether triggered explicitly (/chardon-purge) or opportunistically by the Stop
+-- hook. Also drives the once-a-day auto-purge throttle (lib/retention.ts).
+CREATE TABLE IF NOT EXISTS purge_log (
+  id             INTEGER PRIMARY KEY,
+  ts             TEXT NOT NULL,                   -- ISO-8601 time of the purge
+  repo           TEXT NOT NULL,
+  retention_days INTEGER NOT NULL,
+  events         INTEGER NOT NULL,                -- rows removed per table
+  sessions       INTEGER NOT NULL,
+  token_usage    INTEGER NOT NULL
+);
+
 -- Collection self-health (Public): counts of successful vs failed hook writes per
 -- day/repo, so the daily report can surface silent fail-open failures. A DB that
 -- cannot even open is not counted here (nothing to write to) — that path relies on
 -- CHARDON_DEBUG stderr instead.
 CREATE TABLE IF NOT EXISTS hook_health (
-  date     TEXT NOT NULL,
-  repo     TEXT NOT NULL DEFAULT '',
-  ok       INTEGER NOT NULL DEFAULT 0,
-  failed   INTEGER NOT NULL DEFAULT 0,
+  date       TEXT NOT NULL,
+  repo       TEXT NOT NULL DEFAULT '',
+  ok         INTEGER NOT NULL DEFAULT 0,
+  failed     INTEGER NOT NULL DEFAULT 0,
+  last_error TEXT,                               -- Internal: last swallowed error, redacted then truncated
   PRIMARY KEY (date, repo)
 );

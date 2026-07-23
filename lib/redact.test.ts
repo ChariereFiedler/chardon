@@ -323,3 +323,74 @@ describe("redact — adversarial review additions", () => {
     );
   });
 });
+
+describe("redact: boundary tests for the newer patterns", () => {
+  // Google API keys are AIza + exactly 35 chars: assert both sides of the length
+  const AIZA_SUFFIX_LENGTH = 35;
+
+  it("redacts an AIza key with exactly 35 suffix chars", () => {
+    const key = `AIza${"z".repeat(AIZA_SUFFIX_LENGTH)}`;
+    expect(redactSecrets(`use ${key} now`)).toBe("use [REDACTED] now");
+  });
+
+  it("does NOT redact an AIza-like string with 34 suffix chars", () => {
+    const short = `AIza${"z".repeat(AIZA_SUFFIX_LENGTH - 1)}`;
+    expect(redactSecrets(`use ${short} now`)).toBe(`use ${short} now`);
+  });
+
+  it("does NOT redact an AIza-like string with 36 suffix chars (word boundary)", () => {
+    const long = `AIza${"z".repeat(AIZA_SUFFIX_LENGTH + 1)}`;
+    expect(redactSecrets(`use ${long} now`)).toBe(`use ${long} now`);
+  });
+
+  it("redacts -u at the very start of the string", () => {
+    expect(redactSecrets("-u admin:hunter2 rest")).toBe("-u [REDACTED] rest");
+  });
+
+  it("redacts --user with a space separator", () => {
+    expect(redactSecrets("curl --user admin:hunter2 https://x.io")).toBe(
+      "curl --user [REDACTED] https://x.io",
+    );
+  });
+
+  it("redacts a minimal --user=a:b credential", () => {
+    expect(redactSecrets("curl --user=a:b https://x.io")).toBe(
+      "curl --user=[REDACTED] https://x.io",
+    );
+  });
+
+  it("does NOT redact a -u value without a colon", () => {
+    const cmd = "useradd -u 1000 deploy";
+    expect(redactSecrets(cmd)).toBe(cmd);
+  });
+
+  it("redacts a single-quoted sshpass -p password", () => {
+    expect(redactSecrets("sshpass -p 'hunter2' ssh deploy@host")).toBe(
+      "sshpass -p [REDACTED] ssh deploy@host",
+    );
+  });
+
+  it("redacts an sshpass password glued to -p (no space)", () => {
+    expect(redactSecrets("sshpass -phunter2 ssh deploy@host")).toBe(
+      "sshpass -p[REDACTED] ssh deploy@host",
+    );
+  });
+
+  it("redacts a lowercase compound assignment with a dash separator (my-token=)", () => {
+    expect(redactSecrets("my-token=abc123 ./run.sh")).toBe(
+      "my-token=[REDACTED] ./run.sh",
+    );
+  });
+
+  it("redacts a lowercase assignment with a double-quoted multi-word value", () => {
+    const result = redactSecrets('password="one two three" ./run.sh');
+    expect(result).toBe("password=[REDACTED] ./run.sh");
+    expect(result).not.toContain("one two three");
+  });
+
+  it("redacts a lowercase plural assignment (credentials=)", () => {
+    expect(redactSecrets("credentials=abc ./run.sh")).toBe(
+      "credentials=[REDACTED] ./run.sh",
+    );
+  });
+});

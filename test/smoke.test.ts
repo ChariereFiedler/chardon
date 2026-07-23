@@ -31,7 +31,7 @@ describe("smoke", () => {
     const tables = rows.map((r) => r.name);
 
     expect(tables).toEqual(
-      ["actions", "events", "hook_health", "patterns", "sessions", "ticket_metrics", "token_usage"].sort(),
+      ["actions", "events", "hook_health", "nudges", "patterns", "purge_log", "sessions", "ticket_metrics", "token_usage"].sort(),
     );
     db.close();
   });

@@ -48,6 +48,19 @@ describe("renderDailyReport", () => {
     expect(md).toContain("🟢 healthy");
   });
 
+  it("shows the last swallowed error next to the failure count", () => {
+    const md = renderDailyReport({
+      ...baseData,
+      health: { ok: 5, failed: 2, lastError: "SQLITE_BUSY: database is locked" },
+    });
+    expect(md).toContain("last error: SQLITE_BUSY: database is locked");
+  });
+
+  it("omits the last-error line when no error message was captured", () => {
+    const md = renderDailyReport({ ...baseData, health: { ok: 5, failed: 2 } });
+    expect(md).not.toContain("last error:");
+  });
+
   it("shows an estimated USD cost in the tokens section", () => {
     const md = renderDailyReport({
       ...baseData,

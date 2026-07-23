@@ -12,6 +12,6 @@
     "lib/patterns.ts",
     "lib/config.ts"
   ],
-  "thresholds": { "high": 80, "low": 60, "break": 0 },
+  "thresholds": { "high": 80, "low": 60, "break": 75 },
   "tempDirName": ".stryker-tmp"
 }

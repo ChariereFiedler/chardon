@@ -21,6 +21,12 @@ export default defineConfig({
       reporter: ["text", "html"],
       include: ["lib/**", "scripts/**", "hooks/**"],
       exclude: ["**/*.test.ts", "eval/**"],
+      // Quality gate scoped to lib/ (the pure logic layer, currently ~92% lines):
+      // a blunt global threshold would also gate hooks/ and scripts/ whose
+      // fail-open and I/O branches are exercised as subprocesses, outside v8.
+      thresholds: {
+        "lib/**": { lines: 90 },
+      },
     },
   },
 });
