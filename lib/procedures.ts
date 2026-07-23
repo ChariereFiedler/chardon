@@ -53,7 +53,9 @@ interface NormalizedStep {
  */
 function normalizeStep(tool: string, meta: { cmd?: string; cmd_class?: string; file?: string }): NormalizedStep | null {
   if (tool === "Bash") {
-    if (!meta.cmd_class) return null;
+    // `other` carries no procedural signal and floods every pattern with noise
+    // (verified on real data: 50+ `other > other > git` shaped proposals).
+    if (!meta.cmd_class || meta.cmd_class === "other") return null;
     return { step: meta.cmd_class, display: meta.cmd ?? meta.cmd_class };
   }
   if ((tool === "Edit" || tool === "Write") && meta.file) {
@@ -92,7 +94,11 @@ export function mineProcedures(db: ChardonDb, now: Date): ProcedureCandidate[] {
     const normalized = normalizeStep(row.tool, meta);
     if (!normalized) continue;
     const session = sessions.get(row.sessionId) ?? { repo: row.repo, steps: [] };
-    session.steps.push(normalized);
+    // Collapse consecutive identical steps: editing six files of one directory
+    // in a row is one `edit@dir` step, not a six-step procedure.
+    if (session.steps[session.steps.length - 1]?.step !== normalized.step) {
+      session.steps.push(normalized);
+    }
     sessions.set(row.sessionId, session);
   }
 

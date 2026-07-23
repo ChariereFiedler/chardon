@@ -19,6 +19,9 @@ import { listInstalledSkills, skillSlug } from "../lib/skills.ts";
 /** Where a proposed skill should be installed, by scope. */
 const INSTALL_TARGETS = { local: ".claude/skills/", global: "~/.claude/skills/" } as const;
 
+/** Top candidates proposed per run; the surplus is announced, never silent. */
+const MAX_PROPOSALS_PER_RUN = 5;
+
 interface ProposalResult {
   candidate: ProcedureCandidate;
   name: string;
@@ -30,6 +33,7 @@ interface ProposalResult {
 export function renderSkillsReport(
   proposals: ProposalResult[],
   skippedInstalled: string[],
+  surplus = 0,
 ): string {
   const lines: string[] = ["# Chardon Skill Proposals", ""];
   if (proposals.length === 0 && skippedInstalled.length === 0) {
@@ -50,6 +54,9 @@ export function renderSkillsReport(
   }
   if (proposals.length === 0) {
     lines.push("", "No new recurring procedure to propose.");
+  }
+  if (surplus > 0) {
+    lines.push("", `${surplus} more candidate(s) kept for a later run.`);
   }
   return lines.join("\n");
 }
@@ -82,9 +89,12 @@ export function runSkillInference(opts: {
             .get(repo, c.signature) === undefined,
       );
 
+    const surplus = Math.max(0, candidates.length - MAX_PROPOSALS_PER_RUN);
+    const kept = candidates.slice(0, MAX_PROPOSALS_PER_RUN);
+
     const proposals: ProposalResult[] = [];
     const skippedInstalled: string[] = [];
-    for (const candidate of candidates) {
+    for (const candidate of kept) {
       const target = INSTALL_TARGETS[candidate.scope];
       const drafted = draftSkill(candidate, target, { runner: opts.runner, env: opts.env });
       const name = drafted?.name ?? `procedure-${skillSlug(candidate.signature)}`;
@@ -118,7 +128,7 @@ export function runSkillInference(opts: {
       proposals.push({ candidate, name, path, mode: drafted ? "drafted" : "skeleton" });
     }
 
-    return { summary: renderSkillsReport(proposals, skippedInstalled), proposals: proposals.length };
+    return { summary: renderSkillsReport(proposals, skippedInstalled, surplus), proposals: proposals.length };
   } finally {
     closeDb(db);
   }

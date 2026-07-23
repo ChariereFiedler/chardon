@@ -120,3 +120,35 @@ describe("renderProcedureSkeleton", () => {
     expect(md).toContain("3 session(s)");
   });
 });
+
+describe("mineProcedures noise control", () => {
+  it("excludes 'other' Bash steps from patterns", () => {
+    for (let i = 0; i < MIN_SUPPORT_SESSIONS; i++) {
+      seedSession(`n${i}`, "alpha", [
+        ["Bash", { cmd: "ls", cmd_class: "other" }],
+        ["Edit", { file: "/home/u/proj/src/core/a.ts" }],
+        ["Bash", { cmd: "echo hi", cmd_class: "other" }],
+        ["Bash", { cmd: "npm test", cmd_class: "test" }],
+        ["Bash", { cmd: "git commit", cmd_class: "git" }],
+      ]);
+    }
+    const candidates = mineProcedures(db, NOW);
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0].steps).toEqual(["edit@core", "test", "git"]);
+  });
+
+  it("collapses consecutive identical steps before mining", () => {
+    for (let i = 0; i < MIN_SUPPORT_SESSIONS; i++) {
+      seedSession(`r${i}`, "alpha", [
+        ["Edit", { file: "/home/u/proj/src/core/a.ts" }],
+        ["Edit", { file: "/home/u/proj/src/core/b.ts" }],
+        ["Edit", { file: "/home/u/proj/src/core/c.ts" }],
+        ["Bash", { cmd: "npm test", cmd_class: "test" }],
+        ["Bash", { cmd: "git commit", cmd_class: "git" }],
+      ]);
+    }
+    const candidates = mineProcedures(db, NOW);
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0].steps).toEqual(["edit@core", "test", "git"]);
+  });
+});

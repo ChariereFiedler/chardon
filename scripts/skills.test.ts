@@ -130,3 +130,27 @@ describe("runSkillInference", () => {
     expect(summary).toContain("~/.claude/skills/");
   });
 });
+
+describe("runSkillInference proposal cap", () => {
+  it("caps proposals per run by score and states the surplus", () => {
+    const repo = basename(projectDir);
+    // Seven distinct patterns: 7 groups of 3 sessions each.
+    for (let g = 0; g < 7; g++) {
+      for (let i = 0; i < MIN_SUPPORT_SESSIONS; i++) {
+        const id = `cap${g}-${i}`;
+        writeSession(db, { id, repo, sessionType: "main" });
+        writeEvent(db, { sessionId: id, tool: "Edit", success: true, meta: { file: `/p/src/dir${g}/a.ts` } });
+        writeEvent(db, { sessionId: id, tool: "Bash", success: true, meta: { cmd: "npm test", cmd_class: "test" } });
+        writeEvent(db, { sessionId: id, tool: "Bash", success: true, meta: { cmd: "git commit", cmd_class: "git" } });
+      }
+    }
+    const { proposals, summary } = runSkillInference({
+      projectDir,
+      now: NOW,
+      homeDir,
+      env: { PATH: "/nonexistent" },
+    });
+    expect(proposals).toBe(5);
+    expect(summary).toContain("more candidate(s) kept for a later run");
+  });
+});
