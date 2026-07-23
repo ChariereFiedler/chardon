@@ -107,15 +107,38 @@ future use.
 | `retry_storm` | `investigate-file` |
 | `failure_cluster` (same Bash cmd failing ≥ `FAIL_MIN`) | `fix-failing-command` |
 | `slow_command` (same cmd, avg `duration_ms` ≥ `SLOW_MS`) | `speed-up-command` |
+| `edited_without_tests` (≥ `EDIT_NO_TEST_MIN` Edit/Write in a session, no `test`/`typecheck` run) | `run-tests-after-edits` |
+| `unverified_commit` (`git commit` with no prior passing `test` run in the session) | `verify-before-commit` |
 | any mapped friction with its skill unused | `consider-skill` |
+| any mapped friction whose skill is not installed | `create-skill` |
+| `cross_repo` (a Bash command recurring across ≥ `CROSS_REPO_MIN` repos) | `promote-to-canonical` |
 | `over_budget` (today's tokens > `tokenBudgetPerDay`) | `reduce-token-spend` |
 | `token_growth` (week-over-week ≥ `TREND_ALERT_PCT`) | `investigate-token-growth` |
 
+The friction-to-skill mappings come from `skillMap` in the config (defaults in
+`config/chardon.default.json`): `patternType -> skill` entries plus `onFail`
+command-regex rules refining failure clusters; every regex is vetted with
+`safeRegex` and invalid entries are silently ignored (the file is untrusted).
+Suggestions are grounded against the installed-skill inventory
+(`lib/skills.ts`): a mapped skill absent from a non-empty inventory becomes
+`create-skill`, and a deterministic SKILL.md skeleton is written under
+`<outDir>/proposed/` (never overwritten), its path recorded as a `patterns` row
+so the digest can show `skeleton: <path>`. When the inventory scan fails or
+finds nothing, the plain `consider-skill` behavior is kept on purpose: an
+unreadable inventory must not requalify every suggestion blindly.
+
 `persistActions` will not re-propose a `(repo, kind, target)` that was `dropped` or
-`measured` without effect (self-tuning). The digest also carries non-action sections:
-**Regressions** (a previously-fixed friction whose count climbed back, via `detectRegressions`)
-and **Cross-project candidates** (a Bash command recurring across ≥ `CROSS_REPO_MIN` repos via
-`detectCrossRepoCommands`, the "Ronce Racine candidate" signal).
+`measured` without effect (self-tuning); `promote-to-canonical` rows go through the
+same dedupe, persisted in each repo where the digest runs. The digest also carries
+non-action sections: **Regressions** (a previously-fixed friction whose count climbed
+back, via `detectRegressions`) and **Cross-project candidates** (a Bash command
+recurring across ≥ `CROSS_REPO_MIN` repos via `detectCrossRepoCommands`, the
+"Ronce Racine candidate" signal).
+
+The two method frictions rely on `meta.cmd_class`, a broad command class
+(`test`/`typecheck`/`lint`/`build`/`git`/`pkg`/`other`) computed by `lib/cmd-class.ts` at
+collection time, on the raw command before redaction. Legacy events predate the field and
+are skipped silently: only classify-era events feed the method detectors.
 
 ROI (`lib/roi.ts`) re-measures a proposal by re-running `proposeActions` and reading the
 friction count for the same `kind`+`target`. For `consider-skill`, `after` drops to 0 once

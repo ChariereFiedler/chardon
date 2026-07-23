@@ -8,6 +8,18 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Configurable skill loop: friction-to-skill mappings move to a `skillMap`
+  config key (regex rules vetted), `consider-skill` only proposes skills you
+  actually have installed, uncovered chronic frictions become `create-skill`
+  proposals with a generated skeleton file, and cross-repo commands persist as
+  `promote-to-canonical` actions.
+- Method signals: Bash commands are classified at collection time
+  (`meta.cmd_class`), enabling two new detectors and proposals: sessions that
+  edit a lot without running tests (`run-tests-after-edits`) and commits made
+  without a prior green test run (`verify-before-commit`).
+- Advisory commit gate (`CHARDON_ACTIVE=1`): a once-a-day warning when
+  `git commit` runs while today's tests are red.
+
 - Repo slug collision handling: each session stores a short hash of its project
   root, the daily report warns when two different directories share one slug,
   and a validated `repoName` key in `.chardon.json` separates them explicitly.

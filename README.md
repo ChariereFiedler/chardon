@@ -114,7 +114,11 @@ rather than break your session, so this line is how you find out something went 
 
 The proposal ids shown in *Open Actions* (`#1`) are what the follow-up commands take.
 `consider-skill` fires when a friction maps to a Claude Code skill you have but did not
-invoke; Chardon reads skill usage from the session events, it does not guess.
+invoke; Chardon reads skill usage from the session events, it does not guess. When the
+mapped skill is not installed at all (and the inventory scan found at least one skill),
+the proposal becomes `create-skill` instead, with a ready-to-edit SKILL.md skeleton
+written under `outDir`/proposed and linked from the digest. The mappings are yours to
+change via `skillMap` (see [Configuration](#configuration)).
 
 ### Closing the loop
 
@@ -151,10 +155,13 @@ configurable; raise them to cut noise.
 | **Slow command** | same command repeatedly burning wall-clock | ≥ 3 runs averaging ≥ 30 s (`slowMin`, `slowMs`) | `speed-up-command`: cache, scope, or parallelize it |
 | **Retry storm** | one file edited again and again | ≥ 4 edits (`retryMin`) | `investigate-file`: find the root cause |
 | **Cold read** | one file re-read but never modified | ≥ 3 reads (`coldMin`) | `split-or-summarize`: turn it into a memory note |
+| **Edits without tests** | a session edits a lot but never runs tests or typecheck | ≥ 5 edits (built-in) | `run-tests-after-edits`: run the suite before moving on |
+| **Unverified commit** | `git commit` with no prior passing test in the session | any commit | `verify-before-commit`: test before committing |
 | **Skill gap** | a friction maps to a skill you did not invoke | with the friction | `consider-skill`: use that skill next time |
+| **Missing skill** | the mapped skill is not even installed | with the friction | `create-skill`: a SKILL.md skeleton is drafted under `outDir`/proposed |
 | **Over budget** | today's tokens exceed `tokenBudgetPerDay` | budget set | `reduce-token-spend`: trim context churn |
 | **Token growth** | week-over-week token jump | ≥ trend threshold | `investigate-token-growth`: check for context churn |
-| **Cross-project** | same friction across several repos | ≥ 2 repos | promote a shared rule or skill |
+| **Cross-project** | same friction across several repos | ≥ 2 repos | `promote-to-canonical`: promote a shared rule or skill |
 
 Each proposal carries a severity (⚪ low, 🟡 medium, 🔴 high), so the digest is ordered by
 what actually costs you.
@@ -243,13 +250,22 @@ outside the project). Full shape with defaults:
     "toilMin": 3, "retryMin": 4, "coldMin": 3,
     "failMin": 3, "slowMin": 3, "slowMs": 30000
   },
+  "skillMap": {
+    "failure_cluster": "systematic-debugging",
+    "retry_storm": "systematic-debugging",
+    "edited_without_tests": "test-driven-development",
+    "unverified_commit": "verification-before-completion",
+    "onFail": [
+      { "match": "(npm|npx|yarn|pnpm)( run)? test|vitest|jest|pytest", "skill": "test-driven-development" }
+    ]
+  },
   "toilExclusions": [],
   "gitlab": { "enabled": false, "projectId": "", "tokenEnv": "GITLAB_TOKEN" }
 }
 ```
 
-Top-level keys are shallow-merged over the defaults; `thresholds` and `gitlab` are
-deep-merged, so a partial override keeps the rest.
+Top-level keys are shallow-merged over the defaults; `thresholds`, `skillMap` and
+`gitlab` are deep-merged, so a partial override keeps the rest.
 
 | Key | Default | Role |
 |---|---|---|
@@ -260,6 +276,7 @@ deep-merged, so a partial override keeps the rest.
 | `tokenBudgetPerDay` | `0` (off) | the status line flags `⚠` past this many tokens |
 | `retentionDays` | `90` | how far back the automatic purge and `/chardon-purge` keep the current repo's history |
 | `thresholds` | see above | detection thresholds, raise them to cut noise |
+| `skillMap` | see above | which skill each friction suggests: `patternType -> skill` entries, plus `onFail` regex rules matched against failing commands (unsafe or malformed rules are ignored) |
 | `gitlab` | `{enabled: false}` | optional MR and issue counts in the status line |
 
 To enable the GitLab counts: set `enabled: true` and your numeric `projectId`; the token
@@ -276,7 +293,7 @@ Set these in the shell that launches `claude` (e.g. your shell profile), except
 | `CLAUDE_PROJECT_DIR` | project root, injected by Claude Code; without it a hook writes nothing |
 | `CHARDON_DB` | database path (default `~/.claude/chardon.db`) |
 | `CHARDON_DEBUG=1` | print swallowed hook errors to stderr instead of staying silent |
-| `CHARDON_ACTIVE=1` | enable the live nudges: inline alerts before repeated, failing or slow Bash commands, token-budget warnings at 80% and 100%, and the session-start briefing (open actions, yesterday's top friction, collection-failure warning). Each alert fires at most once per day. Off by default to stay quiet; without it the alert hook costs nothing |
+| `CHARDON_ACTIVE=1` | enable the live nudges: inline alerts before repeated, failing or slow Bash commands, token-budget warnings at 80% and 100%, an advisory warning when a `git commit` starts while today's tests are red, and the session-start briefing (open actions, yesterday's top friction, collection-failure warning). Each alert fires at most once per day. Off by default to stay quiet; without it the alert hook costs nothing |
 | `CHARDON_MODEL` | override the model used by the weekly synthesis |
 
 ## Optional extras
@@ -431,7 +448,7 @@ Agent-facing working rules → [`AGENTS.md`](AGENTS.md) and [`CLAUDE.md`](CLAUDE
 ```bash
 npm install        # dev tooling only, never needed at runtime
 npm run build      # refresh dist/*.mjs (the bundles are committed)
-npm test           # 321 tests
+npm test           # 395 tests
 npm run typecheck
 npm run lint
 ```

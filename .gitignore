@@ -8,3 +8,4 @@ docs/audit/
 .superpowers/
 .stryker-tmp/
 reports/
+.claude/worktrees/
