@@ -276,3 +276,20 @@ export function detectSkillUsage(
     .all(repo, `-${hoursBack}`) as unknown as { skill: string }[];
   return new Set(rows.map((r) => r.skill));
 }
+
+/**
+ * Number of distinct project roots (by stored root hash) sharing this repo
+ * slug. Anything above 1 means two different directories with the same
+ * basename are silently merging their metrics; the daily report surfaces it.
+ * Legacy sessions without a hash are ignored (they cannot discriminate).
+ */
+export function detectSlugCollision(db: ChardonDb, repo: string): number {
+  const row = db
+    .prepare(
+      `SELECT COUNT(DISTINCT root_hash) AS roots
+       FROM sessions
+       WHERE repo = ? AND root_hash IS NOT NULL AND root_hash != ''`,
+    )
+    .get(repo) as { roots: number } | undefined;
+  return row?.roots ?? 0;
+}

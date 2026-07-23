@@ -3,7 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDb, closeDb, writeSession, writeEvent } from "./db.ts";
-import { detectToilLoops, detectColdReads, computeVelocity, detectRetryStorms, detectFailingCommands, detectSlowCommands, detectSkillUsage, detectCrossRepoCommands, RETRY_MIN, TOIL_MIN, FAIL_MIN, SLOW_MIN, SLOW_MS } from "./patterns.ts";
+import { detectToilLoops, detectColdReads, computeVelocity, detectRetryStorms, detectFailingCommands, detectSlowCommands, detectSkillUsage, detectCrossRepoCommands, detectSlugCollision, RETRY_MIN, TOIL_MIN, FAIL_MIN, SLOW_MIN, SLOW_MS } from "./patterns.ts";
 
 let db: ReturnType<typeof openDb>;
 beforeEach(() => {
@@ -134,5 +134,19 @@ describe("patterns", () => {
   it("detectCrossRepoCommands ignores a command confined to a single repo", () => {
     for (let i = 0; i < 5; i++) writeEvent(db, { sessionId: "s1", tool: "Bash", success: true, meta: { cmd: "npm run only" } });
     expect(detectCrossRepoCommands(db, 24).find((x) => x.cmd === "npm run only")).toBeUndefined();
+  });
+});
+
+describe("detectSlugCollision", () => {
+  it("reports the number of distinct roots sharing the repo slug", () => {
+    writeSession(db, { id: "c1", repo: "app", sessionType: "main", rootHash: "aaa111aaa111" });
+    writeSession(db, { id: "c2", repo: "app", sessionType: "main", rootHash: "bbb222bbb222" });
+    expect(detectSlugCollision(db, "app")).toBe(2);
+  });
+
+  it("returns 1 for a single root and ignores legacy rows without a hash", () => {
+    writeSession(db, { id: "c3", repo: "solo", sessionType: "main", rootHash: "ccc333ccc333" });
+    writeSession(db, { id: "c4", repo: "solo", sessionType: "main" });
+    expect(detectSlugCollision(db, "solo")).toBe(1);
   });
 });

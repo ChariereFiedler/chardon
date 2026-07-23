@@ -178,3 +178,25 @@ describe("analyze-daily CLI entry", () => {
     expect(result.stderr).not.toMatch(/^\s+at /m);
   });
 });
+
+describe("renderDailyReport — slug collision warning", () => {
+  const base = {
+    date: "2026-07-23",
+    velocity: { sessions: 1, tools: 2, failures: 0 },
+    toil: [],
+    coldReads: [],
+    retryStorms: [],
+    tokens: { inputTokens: 0, outputTokens: 0, cacheRead: 0, cacheCreation: 0, drift: false },
+  };
+
+  it("warns when several project roots share the repo slug", () => {
+    const md = renderDailyReport({ ...base, repo: "app", slugRoots: 2 });
+    expect(md).toContain("2 different project roots share the repo slug 'app'");
+    expect(md).toContain('"repoName"');
+  });
+
+  it("stays silent for a single root or missing data", () => {
+    expect(renderDailyReport({ ...base, repo: "app", slugRoots: 1 })).not.toContain("share the repo slug");
+    expect(renderDailyReport(base)).not.toContain("share the repo slug");
+  });
+});

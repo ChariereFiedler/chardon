@@ -9,6 +9,7 @@ import {
   detectToilLoops,
   detectColdReads,
   detectRetryStorms,
+  detectSlugCollision,
   type RetryStorm,
 } from "../lib/patterns.ts";
 import { detectTokenDrift, estimateCostUsd } from "../lib/token-parser.ts";
@@ -35,6 +36,10 @@ export interface DailyReportData {
     costUsd?: number;
   };
   health?: { ok: number; failed: number; lastError?: string | null };
+  /** Repo slug, used by the slug-collision warning. */
+  repo?: string;
+  /** Distinct project roots seen for this slug (collision when above 1). */
+  slugRoots?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -78,6 +83,11 @@ export function renderDailyReport(data: DailyReportData): string {
   );
   if (health.failed > 0 && health.lastError) {
     sections.push(`last error: ${health.lastError}`);
+  }
+  if (data.slugRoots !== undefined && data.slugRoots > 1 && data.repo) {
+    sections.push(
+      `⚠ ${data.slugRoots} different project roots share the repo slug '${data.repo}': their metrics are merged. Set "repoName" in .chardon.json to separate them.`,
+    );
   }
   sections.push("");
 
@@ -193,7 +203,8 @@ export async function generateDailyReport(opts: {
     };
 
     const health = readHealth(db, repo, date);
-    markdown = renderDailyReport({ date, velocity, toil, coldReads, retryStorms, tokens, health });
+    const slugRoots = detectSlugCollision(db, repo);
+    markdown = renderDailyReport({ date, velocity, toil, coldReads, retryStorms, tokens, health, repo, slugRoots });
   } finally {
     closeDb(db);
   }

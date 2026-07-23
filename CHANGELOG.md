@@ -8,6 +8,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Repo slug collision handling: each session stores a short hash of its project
+  root, the daily report warns when two different directories share one slug,
+  and a validated `repoName` key in `.chardon.json` separates them explicitly.
+
 - Opportunistic retention: the Stop hook purges the current repo's history past
   `retentionDays` at most once a day, and every purge is recorded in a new
   `purge_log` table shown by `/chardon-inspect`.
@@ -24,6 +28,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   threshold; replay-idempotence and corrupted-database tests.
 - Release workflow with provenance attestation of the `dist/` bundles, CodeQL
   analysis, a deprecation policy and an incident template.
+
+### Changed
+
+- CI actions moved to checkout v7, setup-node v7 and gitleaks v3 (Node 24
+  runtime); the secret-scan job now passes `GITHUB_TOKEN`, which pull_request
+  events require.
 
 ### Fixed
 

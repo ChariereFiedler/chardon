@@ -235,6 +235,7 @@ outside the project). Full shape with defaults:
 ```json
 {
   "outDir": "docs/chardon",
+  "repoName": "",
   "ticketRegex": "(?:feat|fix)/(\\d+)",
   "tokenBudgetPerDay": 0,
   "retentionDays": 90,
@@ -253,6 +254,7 @@ deep-merged, so a partial override keeps the rest.
 | Key | Default | Role |
 |---|---|---|
 | `outDir` | `"docs/chardon"` | where reports are written (confined to the project) |
+| `repoName` | `""` (unset) | explicit repo slug replacing the directory basename; set it to separate two projects whose directories share a name |
 | `ticketRegex` | `"(?:feat\|fix)/(\\d+)"` | pulls a ticket number out of the branch name; stored for the v1.1 ticket-lifecycle feature, no visible effect yet |
 | `toilExclusions` | `[]` | commands to ignore in toil detection |
 | `tokenBudgetPerDay` | `0` (off) | the status line flags `⚠` past this many tokens |
@@ -368,8 +370,10 @@ npm run build && node --experimental-strip-types scripts/bench.ts
 
 ## Known limits
 
-- **Repos are identified by directory basename**: `~/work/app` and `~/personal/app` are
-  the same repo to Chardon and their metrics merge. Rename one directory if that matters.
+- **Repos are identified by directory basename** by default: `~/work/app` and
+  `~/personal/app` merge their metrics under one slug. The daily report warns when it
+  detects several roots behind one slug; set `repoName` in one project's
+  `.chardon.json` to separate them.
 - **Worktrees**: linked `git worktree` checkouts are detected natively; sibling clone
   directories are recognized by the `<repo>-wt-<N>` naming convention only. Token counts
   are kept per checkout origin, so the main checkout's budget does not include its
@@ -427,7 +431,7 @@ Agent-facing working rules → [`AGENTS.md`](AGENTS.md) and [`CLAUDE.md`](CLAUDE
 ```bash
 npm install        # dev tooling only, never needed at runtime
 npm run build      # refresh dist/*.mjs (the bundles are committed)
-npm test           # 313 tests
+npm test           # 321 tests
 npm run typecheck
 npm run lint
 ```
