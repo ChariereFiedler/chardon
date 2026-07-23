@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { loadConfig, dbPath, repoSlug, transcriptSlug } from "./config.ts";
+import { loadConfig, dbPath, repoSlug, safeRegex, transcriptSlug } from "./config.ts";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -78,5 +78,32 @@ describe("config", () => {
     writeFileSync(join(d, ".chardon.json"), JSON.stringify({ ticketRegex: "([unclosed" }));
     const c = loadConfig(d);
     expect(c.ticketRegex).toBe("(?:feat|fix)/(\\d+)");
+  });
+});
+
+describe("safeRegex", () => {
+  it("compiles the default ticket regex", () => {
+    expect(safeRegex("(?:feat|fix)/(\\d+)")).toBeInstanceOf(RegExp);
+  });
+
+  it("rejects a quantified group (catastrophic backtracking shape)", () => {
+    expect(safeRegex("(a+)+$")).toBeNull();
+    expect(safeRegex("(a|aa)+$")).toBeNull();
+  });
+
+  it("rejects a backreference pattern", () => {
+    expect(safeRegex("(a)\\1+")).toBeNull();
+  });
+
+  it("rejects an overlong pattern", () => {
+    expect(safeRegex(`${"a".repeat(101)}`)).toBeNull();
+  });
+
+  it("rejects a pattern with too many quantifiers", () => {
+    expect(safeRegex("a+b+c+d+e+f+g+")).toBeNull();
+  });
+
+  it("rejects an invalid pattern instead of throwing", () => {
+    expect(safeRegex("(")).toBeNull();
   });
 });

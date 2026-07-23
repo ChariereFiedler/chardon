@@ -61,10 +61,8 @@ export function loadConfig(projectDir: string): ChardonConfig {
     }
   }
 
-  // Validate ticketRegex; fall back to the default if the value is not a valid RegExp.
-  try {
-    new RegExp(merged.ticketRegex);
-  } catch {
+  // Validate ticketRegex; fall back to the default if the value is not a safe RegExp.
+  if (safeRegex(merged.ticketRegex) === null) {
     merged.ticketRegex = defaults.ticketRegex;
   }
 
@@ -72,6 +70,33 @@ export function loadConfig(projectDir: string): ChardonConfig {
   merged.outDir = resolveOutDir(projectDir, merged.outDir, defaults.outDir);
 
   return merged;
+}
+
+/** Upper bounds keeping an untrusted pattern away from backtracking blowups. */
+const REGEX_MAX_LENGTH = 100;
+const REGEX_MAX_QUANTIFIERS = 5;
+
+/**
+ * Compiles a pattern only if it stays in a conservative, backtracking-safe
+ * subset: bounded length, few quantifiers, no quantified group, no backreference.
+ *
+ * `ticketRegex` comes from a committed `.chardon.json`, which is untrusted: a
+ * hostile pattern must not be able to hang a hook — fail-open catches throws,
+ * not hangs. Returns null when the pattern is rejected or does not compile.
+ */
+export function safeRegex(pattern: string): RegExp | null {
+  if (typeof pattern !== "string" || pattern.length > REGEX_MAX_LENGTH) return null;
+  // Backreferences and quantified groups are the classic catastrophic shapes
+  // ((a+)+, (a|aa)+); ticket regexes never need them.
+  if (/\\[1-9]/.test(pattern)) return null;
+  if (/\)[+*{]/.test(pattern)) return null;
+  const quantifiers = pattern.match(/[+*{]/g)?.length ?? 0;
+  if (quantifiers > REGEX_MAX_QUANTIFIERS) return null;
+  try {
+    return new RegExp(pattern);
+  } catch {
+    return null;
+  }
 }
 
 /**
