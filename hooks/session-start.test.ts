@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, dirname } from "node:path";
+import { join, dirname, basename } from "node:path";
 import { fileURLToPath } from "node:url";
 import { openDb, closeDb } from "../lib/db.ts";
 import { run } from "./session-start.ts";
@@ -147,6 +147,89 @@ describe("session-start hook — in-process run() tests", () => {
     const count = (db.prepare("SELECT COUNT(*) AS n FROM sessions").get() as { n: number }).n;
     closeDb(db);
     expect(count).toBe(0);
+  });
+});
+
+describe("session-start hook — briefing output (CHARDON_ACTIVE)", () => {
+  let dbFile: string, project: string;
+
+  /** Runs the hook in a subprocess and returns its captured stdout. */
+  function runHookCapture(payload: string, env: Record<string, string>): string {
+    try {
+      return execFileSync("node", ["--experimental-strip-types", HOOK], {
+        input: payload,
+        env: { ...process.env, ...env },
+        encoding: "utf-8",
+      });
+    } catch {
+      return "";
+    }
+  }
+
+  beforeEach(() => {
+    dbFile = join(mkdtempSync(join(tmpdir(), "chardon-")), "t.db");
+    project = mkdtempSync(join(tmpdir(), "proj-"));
+    process.env.CHARDON_DB = dbFile;
+    const db = openDb();
+    try {
+      db.prepare("INSERT INTO actions (repo, kind, target, status) VALUES (?, 'enable-hook', 'pre-commit', 'proposed')")
+        .run(basename(project));
+    } finally {
+      closeDb(db);
+    }
+  });
+
+  it("emits SessionStart JSON with the briefing when CHARDON_ACTIVE=1", () => {
+    const out = runHookCapture(
+      JSON.stringify({ session_id: "brief-1", cwd: project }),
+      { CHARDON_DB: dbFile, CLAUDE_PROJECT_DIR: project, CHARDON_ACTIVE: "1" },
+    );
+    const parsed = JSON.parse(out) as {
+      hookSpecificOutput: { hookEventName: string; additionalContext: string };
+    };
+    expect(parsed.hookSpecificOutput.hookEventName).toBe("SessionStart");
+    expect(parsed.hookSpecificOutput.additionalContext).toContain("open action #1: enable-hook (pre-commit)");
+  });
+
+  it("prints nothing without CHARDON_ACTIVE", () => {
+    const out = runHookCapture(
+      JSON.stringify({ session_id: "brief-2", cwd: project }),
+      { CHARDON_DB: dbFile, CLAUDE_PROJECT_DIR: project },
+    );
+    expect(out).toBe("");
+  });
+
+  it("prints nothing when the briefing is empty (no JSON at all)", () => {
+    const emptyDb = join(mkdtempSync(join(tmpdir(), "chardon-")), "empty.db");
+    const out = runHookCapture(
+      JSON.stringify({ session_id: "brief-3", cwd: project }),
+      { CHARDON_DB: emptyDb, CLAUDE_PROJECT_DIR: project, CHARDON_ACTIVE: "1" },
+    );
+    expect(out).toBe("");
+  });
+});
+
+describe("session-start hook · idempotent replay", () => {
+  it("does not duplicate the session when the same payload is replayed", () => {
+    const dbFile = join(mkdtempSync(join(tmpdir(), "chardon-")), "t.db");
+    const project = mkdtempSync(join(tmpdir(), "proj-"));
+    const payload = JSON.stringify({ session_id: "replay-sess", cwd: project });
+    const env = { CHARDON_DB: dbFile, CLAUDE_PROJECT_DIR: project };
+
+    expect(runHook(payload, env)).toBe(0);
+    expect(runHook(payload, env)).toBe(0);
+
+    process.env.CHARDON_DB = dbFile;
+    const db = openDb();
+    try {
+      const row = db
+        .prepare("SELECT COUNT(*) AS n FROM sessions WHERE id = ?")
+        .get("replay-sess") as { n: number };
+      // INSERT OR IGNORE on the primary key: a replayed SessionStart is a no-op.
+      expect(row.n).toBe(1);
+    } finally {
+      closeDb(db);
+    }
   });
 });
 

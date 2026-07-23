@@ -16,6 +16,7 @@ import { loadConfig, repoSlug, safeRegex } from "../lib/config.ts";
 import { openDb, closeDb, writeSession } from "../lib/db.ts";
 import { debug } from "../lib/debug.ts";
 import { isGitWorktree } from "../lib/git.ts";
+import { buildSessionContext } from "../lib/session-context.ts";
 
 /** Pattern that identifies a Claude Code worktree directory. */
 const WORKTREE_SUFFIX_PATTERN = /-wt-\d+$/;
@@ -28,7 +29,7 @@ const MAX_BRANCH_LENGTH = 200;
  * Reads project configuration from `env` (not `process.env`).
  * Never throws — all DB/IO errors are caught internally.
  */
-export function run(input: unknown, env: NodeJS.ProcessEnv): void {
+export function run(input: unknown, env: NodeJS.ProcessEnv, now: Date = new Date()): void {
   try {
     // Propagate CHARDON_DB so openDb() picks up the right file.
     if (env.CHARDON_DB) {
@@ -90,6 +91,19 @@ export function run(input: unknown, env: NodeJS.ProcessEnv): void {
         ticketIid,
         sessionType,
       });
+
+      // Session-start briefing: open actions, yesterday's top friction, and a
+      // collection-failure warning. Read-only; a non-empty context is handed to
+      // Claude Code as SessionStart additionalContext. Errors print nothing.
+      if (env.CHARDON_ACTIVE === "1") {
+        const context = buildSessionContext(db, repo, now);
+        if (context) {
+          const output = {
+            hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: context },
+          };
+          process.stdout.write(JSON.stringify(output));
+        }
+      }
     } finally {
       closeDb(db);
     }
