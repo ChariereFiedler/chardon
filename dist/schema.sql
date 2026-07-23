@@ -7,11 +7,17 @@
 -- (retentionDays). Highest sensitivity is Internal — no secrets or credentials, ever.
 --   Public   : repo, tool, success, ts, counts, token totals, dates, status
 --   Internal : git_branch, ticket_iid, events.meta (cmd is REDACTED via lib/redact.ts
---              then truncated; file paths truncated to 80 chars; skill/subagent names),
+--              then truncated; cmd_class is a broad command class from lib/cmd-class.ts,
+--              computed on the raw command before redaction; file paths truncated to
+--              80 chars; skill/subagent names),
 --              hook_health.last_error (redacted via lib/redact.ts then truncated);
 --              purge_log (purge timestamps, retention window, per-table removal counts
 --              · no PII);
 --              nudges.kind, nudges.target (may hold a redacted command);
+--              patterns.context (JSON: friction target, a redacted command or a
+--              truncated path, plus the suggested skill name) and
+--              patterns.proposal_path (path of a generated skill skeleton,
+--              inside the project's outDir);
 --              sessions.root_hash (12-hex sha256 prefix of the project root path,
 --              for slug-collision detection · the path itself is never stored)
 -- Any new column MUST be classified here before it ships.
@@ -111,7 +117,7 @@ CREATE INDEX IF NOT EXISTS idx_actions_status ON actions(status);
 CREATE TABLE IF NOT EXISTS nudges (
   date   TEXT NOT NULL,                           -- YYYY-MM-DD
   repo   TEXT NOT NULL,
-  kind   TEXT NOT NULL,                           -- toil | failing-cmd | slow-cmd | budget-80 | budget-100
+  kind   TEXT NOT NULL,                           -- toil | failing-cmd | slow-cmd | budget-80 | budget-100 | commit-gate
   target TEXT NOT NULL,                           -- redacted command, or a fixed marker for budget kinds
   PRIMARY KEY (date, repo, kind, target)
 );
