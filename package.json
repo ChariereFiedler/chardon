@@ -20,6 +20,7 @@
     "build": "node tools/build.mjs",
     "pretest": "node tools/build.mjs && node --experimental-strip-types tools/validate.ts",
     "test": "vitest run",
+    "verify": "npm run typecheck && npm run lint && npm test",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "lint": "biome check lib/ hooks/ scripts/ tools/",
