@@ -12,7 +12,10 @@
       {
         "matcher": "Bash",
         "hooks": [
-          { "type": "command", "command": "node ${CLAUDE_PLUGIN_ROOT}/dist/notify.mjs" }
+          {
+            "type": "command",
+            "command": "sh -c '[ \"$CHARDON_ACTIVE\" = \"1\" ] || exit 0; exec node \"${CLAUDE_PLUGIN_ROOT}/dist/notify.mjs\"'"
+          }
         ]
       }
     ],

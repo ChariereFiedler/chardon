@@ -144,3 +144,13 @@ describe("notify hook — in-process run() tests", () => {
     expect(chunks.join("")).toBe("");
   });
 });
+
+describe("hooks.json wiring", () => {
+  it("guards the notify spawn behind CHARDON_ACTIVE at the shell level", () => {
+    const wiringPath = join(dirname(fileURLToPath(import.meta.url)), "hooks.json");
+    const wiring = JSON.parse(execFileSync("cat", [wiringPath], { encoding: "utf-8" }));
+    const cmd = wiring.hooks.PreToolUse[0].hooks[0].command as string;
+    expect(cmd).toContain('"$CHARDON_ACTIVE"');
+    expect(cmd).toContain("dist/notify.mjs");
+  });
+});
