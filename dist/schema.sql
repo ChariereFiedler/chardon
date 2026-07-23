@@ -11,7 +11,9 @@
 --              hook_health.last_error (redacted via lib/redact.ts then truncated);
 --              purge_log (purge timestamps, retention window, per-table removal counts
 --              · no PII);
---              nudges.kind, nudges.target (may hold a redacted command)
+--              nudges.kind, nudges.target (may hold a redacted command);
+--              sessions.root_hash (12-hex sha256 prefix of the project root path,
+--              for slug-collision detection · the path itself is never stored)
 -- Any new column MUST be classified here before it ships.
 
 PRAGMA journal_mode = WAL;
@@ -28,7 +30,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   repo         TEXT NOT NULL DEFAULT '',         -- basename(CLAUDE_PROJECT_DIR) without worktree suffix
   git_branch   TEXT,
   ticket_iid   INTEGER,                          -- extracted from branch via configurable ticketRegex
-  session_type TEXT NOT NULL DEFAULT 'main' CHECK (session_type IN ('main', 'worktree'))
+  session_type TEXT NOT NULL DEFAULT 'main' CHECK (session_type IN ('main', 'worktree')),
+  root_hash    TEXT                              -- short hash of the project root path (slug-collision detection)
 );
 
 -- A tool usage event within a session.
