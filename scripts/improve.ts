@@ -9,10 +9,13 @@ import {
   openActions,
   actionHint,
   severityForProposal,
+  recordSkeleton,
+  skeletonPaths,
   type ProposedAction,
   type Severity,
   type TokenContext,
 } from "../lib/improve.ts";
+import { ensureSkillSkeleton, listInstalledSkills } from "../lib/skills.ts";
 import { roiSummary, detectRegressions } from "../lib/roi.ts";
 import { detectCrossRepoCommands } from "../lib/patterns.ts";
 import { tokensForDay } from "../lib/token-parser.ts";
@@ -36,6 +39,8 @@ export interface ImproveDigestData {
   proposals: ProposedAction[];
   regressions?: { kind: string; target: string; baseline: number; current: number }[];
   crossRepo?: { cmd: string; repos: number }[];
+  /** Skill name -> generated skeleton file path, for `create-skill` proposals. */
+  skeletons?: Record<string, string>;
   open: { id: number; kind: string; target: string; status: string }[];
   roi: { kind: string; target: string; delta: number }[];
 }
@@ -72,8 +77,10 @@ export function renderImproveDigest(d: ImproveDigestData): string {
     for (const p of proposals) {
       const icon = SEVERITY_ICON[p.severity] ?? "⚪";
       sections.push(`- ${icon} **${p.kind}** → \`${p.target}\` (baseline: ${p.baseline})`);
-      const hint = actionHint(p.kind, p.target);
+      const hint = actionHint(p.kind, p.target, p.baseline);
       if (hint) sections.push(`  ↳ ${hint}`);
+      const skeleton = p.kind === "create-skill" ? d.skeletons?.[p.target] : undefined;
+      if (skeleton) sections.push(`  ↳ skeleton: ${skeleton}`);
     }
     sections.push("");
   }
@@ -134,8 +141,10 @@ export async function runImprove(opts: {
   projectDir: string;
   hoursBack: number;
   now?: Date;
+  /** Home directory for the skill inventory scan (tests point it at a temp dir). */
+  homeDir?: string;
 }): Promise<{ digest: string }> {
-  const { projectDir, hoursBack, now } = opts;
+  const { projectDir, hoursBack, now, homeDir } = opts;
   const repo = repoSlug(projectDir);
 
   const db = openDb();
@@ -152,7 +161,16 @@ export async function runImprove(opts: {
       const trendPct = aggregateWeek(db, repo, now).tokenTrend?.pct ?? null;
       tokenCtx = { budget: config.tokenBudgetPerDay, tokensToday, trendPct };
     }
-    persistActions(db, repo, proposeActions(db, repo, hoursBack, tokenCtx, config.thresholds));
+    const installedSkills = listInstalledSkills(projectDir, homeDir);
+    const proposed = proposeActions(db, repo, hoursBack, tokenCtx, config.thresholds, config.skillMap, installedSkills);
+    // Write a skeleton file for each create-skill proposal and record its path
+    // (a `patterns` row) so the digest can point at it.
+    for (const p of proposed) {
+      if (p.kind !== "create-skill" || !p.source) continue;
+      const path = ensureSkillSkeleton({ outDir: config.outDir, skill: p.target, ...p.source });
+      if (path) recordSkeleton(db, repo, { skill: p.target, baseline: p.baseline, path, ...p.source });
+    }
+    persistActions(db, repo, proposed);
     const allOpen = openActions(db, repo);
     const open = allOpen.map((a) => ({
       id: a.id,
@@ -183,7 +201,7 @@ export async function runImprove(opts: {
         baseline: a.baseline,
         severity: severityForProposal(a.patternType, a.baseline) as Severity,
       }));
-    digest = renderImproveDigest({ proposals, regressions, crossRepo, open, roi });
+    digest = renderImproveDigest({ proposals, regressions, crossRepo, skeletons: skeletonPaths(db, repo), open, roi });
   } finally {
     closeDb(db);
   }

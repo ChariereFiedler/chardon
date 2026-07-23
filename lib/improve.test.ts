@@ -3,8 +3,8 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDb, closeDb, writeSession, writeEvent } from "./db.ts";
-import { severityFor, severityForProposal, actionHint, proposeActions, persistActions, openActions } from "./improve.ts";
-import { FAIL_MIN, SLOW_MIN, SLOW_MS } from "./patterns.ts";
+import { severityFor, severityForProposal, actionHint, proposeActions, persistActions, openActions, recordSkeleton, skeletonPaths } from "./improve.ts";
+import { FAIL_MIN, SLOW_MIN, SLOW_MS, EDIT_NO_TEST_MIN } from "./patterns.ts";
 
 let db: ReturnType<typeof openDb>;
 beforeEach(() => {
@@ -146,6 +146,137 @@ describe("improve", () => {
       .toMatchObject({ target: "weekly-tokens", patternType: "token_growth", baseline: 80, severity: "medium" });
     expect(proposeActions(db, "p", 24, { budget: 0, tokensToday: 0, trendPct: 20 }).find((x) => x.kind === "investigate-token-growth")).toBeUndefined();
     expect(proposeActions(db, "p", 24, { budget: 0, tokensToday: 0, trendPct: null }).find((x) => x.kind === "investigate-token-growth")).toBeUndefined();
+  });
+
+  const seedEditsWithoutTests = (sessionId: string) => {
+    for (let i = 0; i < EDIT_NO_TEST_MIN; i++)
+      writeEvent(db, { sessionId, tool: "Edit", success: true, meta: { file: "src/a.ts" } });
+    writeEvent(db, { sessionId, tool: "Bash", success: true, meta: { cmd: "ls", cmd_class: "other" } });
+  };
+
+  it("proposeActions proposes run-tests-after-edits for a session editing without tests", () => {
+    seedEditsWithoutTests("s1");
+    const a = proposeActions(db, "p", 24).find((x) => x.kind === "run-tests-after-edits");
+    expect(a).toMatchObject({ target: "s1", patternType: "edited_without_tests", baseline: EDIT_NO_TEST_MIN });
+  });
+
+  it("proposeActions proposes verify-before-commit for unverified commits", () => {
+    writeEvent(db, { sessionId: "s1", tool: "Bash", success: true, meta: { cmd: "git commit -m 'x'", cmd_class: "git" } });
+    const a = proposeActions(db, "p", 24).find((x) => x.kind === "verify-before-commit");
+    expect(a).toMatchObject({ target: "git commit", patternType: "unverified_commit", baseline: 1, severity: "low" });
+  });
+
+  it("proposeActions does NOT propose verify-before-commit when tests preceded the commit", () => {
+    writeEvent(db, { sessionId: "s1", tool: "Bash", success: true, meta: { cmd: "npm test", cmd_class: "test" } });
+    writeEvent(db, { sessionId: "s1", tool: "Bash", success: true, meta: { cmd: "git commit -m 'x'", cmd_class: "git" } });
+    expect(proposeActions(db, "p", 24).find((x) => x.kind === "verify-before-commit")).toBeUndefined();
+  });
+
+  it("consider-skill maps edited_without_tests to test-driven-development", () => {
+    seedEditsWithoutTests("s1");
+    const a = proposeActions(db, "p", 24).find(
+      (x) => x.kind === "consider-skill" && x.target === "test-driven-development",
+    );
+    expect(a).toMatchObject({ patternType: "uncovered_friction", baseline: EDIT_NO_TEST_MIN });
+  });
+
+  it("consider-skill maps unverified_commit to verification-before-completion", () => {
+    writeEvent(db, { sessionId: "s1", tool: "Bash", success: true, meta: { cmd: "git commit -m 'x'", cmd_class: "git" } });
+    const a = proposeActions(db, "p", 24).find(
+      (x) => x.kind === "consider-skill" && x.target === "verification-before-completion",
+    );
+    expect(a).toMatchObject({ patternType: "uncovered_friction" });
+  });
+
+  it("actionHint covers the method proposal kinds", () => {
+    expect(actionHint("run-tests-after-edits", "s1")).toContain("test");
+    expect(actionHint("verify-before-commit", "git commit")).toContain("git commit");
+  });
+
+  const seedFailures = (cmd: string) => {
+    for (let i = 0; i < FAIL_MIN; i++)
+      writeEvent(db, { sessionId: "s1", tool: "Bash", success: false, meta: { cmd } });
+  };
+
+  it("proposeActions honors a custom skillMap for a mapped friction", () => {
+    seedFailures("npm run build");
+    const a = proposeActions(db, "p", 24, undefined, undefined, { failure_cluster: "my-debug-skill" })
+      .find((x) => x.kind === "consider-skill");
+    expect(a?.target).toBe("my-debug-skill");
+  });
+
+  it("proposeActions applies an onFail regex to the failing command, over the patternType entry", () => {
+    seedFailures("npm test");
+    const skillMap = {
+      failure_cluster: "systematic-debugging",
+      onFail: [{ match: "npm test", skill: "test-first-skill" }],
+    };
+    const a = proposeActions(db, "p", 24, undefined, undefined, skillMap).find((x) => x.kind === "consider-skill");
+    expect(a?.target).toBe("test-first-skill");
+  });
+
+  it("proposeActions silently ignores invalid onFail entries (unsafe regex, malformed shape)", () => {
+    seedFailures("npm test");
+    const skillMap = {
+      failure_cluster: "systematic-debugging",
+      onFail: [
+        { match: "(a+)+$", skill: "never-me" }, // catastrophic shape, rejected by safeRegex
+        { match: "npm test" }, // missing skill
+        "garbage",
+      ],
+    } as never;
+    const a = proposeActions(db, "p", 24, undefined, undefined, skillMap).find((x) => x.kind === "consider-skill");
+    expect(a?.target).toBe("systematic-debugging"); // falls back to the patternType entry
+  });
+
+  it("proposeActions keeps consider-skill when the mapped skill is installed", () => {
+    seedFailures("npm run build");
+    const acts = proposeActions(db, "p", 24, undefined, undefined, undefined, ["systematic-debugging"]);
+    expect(acts.find((x) => x.kind === "consider-skill")?.target).toBe("systematic-debugging");
+    expect(acts.find((x) => x.kind === "create-skill")).toBeUndefined();
+  });
+
+  it("proposeActions requalifies to create-skill when the mapped skill is not installed", () => {
+    seedFailures("npm run build");
+    const a = proposeActions(db, "p", 24, undefined, undefined, undefined, ["some-other-skill"])
+      .find((x) => x.kind === "create-skill");
+    expect(a).toMatchObject({ target: "systematic-debugging", patternType: "uncovered_friction", baseline: FAIL_MIN });
+    expect(a?.source).toEqual({ patternType: "failure_cluster", target: "npm run build" });
+    expect(proposeActions(db, "p", 24, undefined, undefined, undefined, ["some-other-skill"]).find((x) => x.kind === "consider-skill")).toBeUndefined();
+  });
+
+  it("proposeActions keeps consider-skill when the inventory is empty (scan failed or no skills found)", () => {
+    seedFailures("npm run build");
+    const acts = proposeActions(db, "p", 24, undefined, undefined, undefined, []);
+    expect(acts.find((x) => x.kind === "consider-skill")?.target).toBe("systematic-debugging");
+    expect(acts.find((x) => x.kind === "create-skill")).toBeUndefined();
+  });
+
+  it("proposeActions proposes promote-to-canonical for a command recurring across repos", () => {
+    writeSession(db, { id: "s2", repo: "q", sessionType: "main" });
+    writeEvent(db, { sessionId: "s2", tool: "Bash", success: true, meta: { cmd: "npm run build" } });
+    const a = proposeActions(db, "p", 24).find((x) => x.kind === "promote-to-canonical");
+    expect(a).toMatchObject({ target: "npm run build", patternType: "cross_repo", baseline: 2 });
+  });
+
+  it("proposeActions does NOT propose promote-to-canonical for a single-repo command", () => {
+    expect(proposeActions(db, "p", 24).find((x) => x.kind === "promote-to-canonical")).toBeUndefined();
+  });
+
+  it("actionHint covers the create-skill and promote-to-canonical kinds", () => {
+    expect(actionHint("create-skill", "my-skill")).toContain("my-skill");
+    expect(actionHint("promote-to-canonical", "npm test", 3)).toBe("recurs across 3 repos: promote a shared rule or skill");
+    expect(actionHint("promote-to-canonical", "npm test")).toContain("repos");
+  });
+
+  it("recordSkeleton persists one patterns row per path and skeletonPaths maps skill to path", () => {
+    const entry = { skill: "fix-build", patternType: "failure_cluster", target: "npm run build", baseline: 3, path: "/out/proposed/skill-npm-run-build.md" };
+    recordSkeleton(db, "p", entry);
+    recordSkeleton(db, "p", entry); // second call: no duplicate row
+    const rows = db.prepare("SELECT COUNT(*) AS c FROM patterns WHERE repo='p'").get() as { c: number };
+    expect(rows.c).toBe(1);
+    expect(skeletonPaths(db, "p")).toEqual({ "fix-build": "/out/proposed/skill-npm-run-build.md" });
+    expect(skeletonPaths(db, "other")).toEqual({});
   });
 
   const proposedCount = (target: string) =>

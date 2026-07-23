@@ -73,6 +73,24 @@ describe("config", () => {
     expect(c.gitlab.tokenEnv).toBe("GITLAB_TOKEN"); // default kept
   });
 
+  it("ships default skillMap mappings and onFail rules", () => {
+    const d = mkdtempSync(join(tmpdir(), "chardon-"));
+    const c = loadConfig(d);
+    expect(c.skillMap.failure_cluster).toBe("systematic-debugging");
+    expect(c.skillMap.retry_storm).toBe("systematic-debugging");
+    expect(c.skillMap.edited_without_tests).toBe("test-driven-development");
+    expect(c.skillMap.unverified_commit).toBe("verification-before-completion");
+    expect(Array.isArray(c.skillMap.onFail)).toBe(true);
+  });
+
+  it("deep-merges a partial skillMap override, keeping other defaults", () => {
+    const d = mkdtempSync(join(tmpdir(), "chardon-"));
+    writeFileSync(join(d, ".chardon.json"), JSON.stringify({ skillMap: { toil_loop: "my-automation-skill" } }));
+    const c = loadConfig(d);
+    expect(c.skillMap.toil_loop).toBe("my-automation-skill"); // added
+    expect(c.skillMap.failure_cluster).toBe("systematic-debugging"); // default preserved
+  });
+
   it("falls back to the default ticketRegex when the override is invalid", () => {
     const d = mkdtempSync(join(tmpdir(), "chardon-"));
     writeFileSync(join(d, ".chardon.json"), JSON.stringify({ ticketRegex: "([unclosed" }));
@@ -101,6 +119,15 @@ describe("safeRegex", () => {
 
   it("rejects a pattern with too many quantifiers", () => {
     expect(safeRegex("a+b+c+d+e+f+g+")).toBeNull();
+  });
+
+  it("rejects an optional-any repetition (?-quantifier backtracking shape)", () => {
+    expect(safeRegex(`${".?".repeat(45)}#`)).toBeNull();
+    expect(safeRegex("a?b?c?d?e?f?g?")).toBeNull();
+  });
+
+  it("does not count group syntax (?: toward the quantifier budget", () => {
+    expect(safeRegex("(?:a)(?:b)(?:c)(?:d)(?:e)(?:f)x?")).toBeInstanceOf(RegExp);
   });
 
   it("rejects an invalid pattern instead of throwing", () => {

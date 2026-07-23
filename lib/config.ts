@@ -13,6 +13,20 @@ export interface Thresholds {
   slowMs: number;
 }
 
+/** A command-regex rule: `match` (safeRegex-vetted) applied to a failing command's redacted text. */
+export interface SkillMapRule {
+  match: string;
+  skill: string;
+}
+
+/**
+ * Friction-to-skill mappings: `patternType -> skill name` entries, plus a
+ * reserved `onFail` key holding command-regex rules for failure clusters.
+ * Values come from a committed `.chardon.json` (untrusted): consumers must
+ * vet every `match` with `safeRegex` and silently ignore invalid entries.
+ */
+export type SkillMap = Record<string, string | SkillMapRule[]>;
+
 export interface ChardonConfig {
   outDir: string;
   /** Optional explicit repo slug, overriding the directory basename (empty = unset). */
@@ -23,6 +37,8 @@ export interface ChardonConfig {
   retentionDays: number;
   /** Detection thresholds; missing keys fall back to built-in defaults. */
   thresholds: Thresholds;
+  /** Friction-to-skill mappings driving `consider-skill` proposals. */
+  skillMap: SkillMap;
   toilExclusions: string[];
   gitlab: {
     enabled: boolean;
@@ -58,6 +74,7 @@ export function loadConfig(projectDir: string): ChardonConfig {
       // Deep-merge nested objects so a partial override keeps unspecified default fields.
       merged.gitlab = { ...defaults.gitlab, ...(override.gitlab ?? {}) };
       merged.thresholds = { ...defaults.thresholds, ...(override.thresholds ?? {}) };
+      merged.skillMap = { ...defaults.skillMap, ...(override.skillMap ?? {}) };
     } catch {
       // Malformed file — silently ignore the override.
     }
@@ -92,7 +109,9 @@ export function safeRegex(pattern: string): RegExp | null {
   // ((a+)+, (a|aa)+); ticket regexes never need them.
   if (/\\[1-9]/.test(pattern)) return null;
   if (/\)[+*{]/.test(pattern)) return null;
-  const quantifiers = pattern.match(/[+*{]/g)?.length ?? 0;
+  // `?` is quantifier syntax too ((.?){n} shapes backtrack exponentially), but
+  // `(?` starts group syntax ((?:, (?=, (?<...) and is not counted.
+  const quantifiers = pattern.match(/[+*{]|(?<!\()\?/g)?.length ?? 0;
   if (quantifiers > REGEX_MAX_QUANTIFIERS) return null;
   try {
     return new RegExp(pattern);

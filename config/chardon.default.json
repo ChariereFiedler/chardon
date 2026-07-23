@@ -12,6 +12,15 @@
     "slowMin": 3,
     "slowMs": 30000
   },
+  "skillMap": {
+    "failure_cluster": "systematic-debugging",
+    "retry_storm": "systematic-debugging",
+    "edited_without_tests": "test-driven-development",
+    "unverified_commit": "verification-before-completion",
+    "onFail": [
+      { "match": "(npm|npx|yarn|pnpm)( run)? test|vitest|jest|pytest", "skill": "test-driven-development" }
+    ]
+  },
   "toilExclusions": [],
   "gitlab": {
     "enabled": false,

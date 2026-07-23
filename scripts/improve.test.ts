@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDb, closeDb, writeSession, writeEvent } from "../lib/db.ts";
@@ -43,6 +43,26 @@ describe("renderImproveDigest", () => {
     });
     expect(md).toContain("↳");
     expect(md).toContain("toilExclusions");
+  });
+
+  it("renders a create-skill proposal with its hint and skeleton path", () => {
+    const md = renderImproveDigest({
+      proposals: [{ kind: "create-skill", target: "fix-build", patternType: "uncovered_friction", baseline: 4, severity: "medium" }],
+      skeletons: { "fix-build": "/proj/docs/chardon/proposed/skill-npm-run-build.md" },
+      open: [],
+      roi: [],
+    });
+    expect(md).toContain("no installed skill covers this friction: draft a `fix-build` skill from the skeleton");
+    expect(md).toContain("↳ skeleton: /proj/docs/chardon/proposed/skill-npm-run-build.md");
+  });
+
+  it("renders a promote-to-canonical proposal with the repo count in its hint", () => {
+    const md = renderImproveDigest({
+      proposals: [{ kind: "promote-to-canonical", target: "npm run lint", patternType: "cross_repo", baseline: 3, severity: "low" }],
+      open: [],
+      roi: [],
+    });
+    expect(md).toContain("recurs across 3 repos: promote a shared rule or skill");
   });
 
   it("renders a cross-project candidates section", () => {
@@ -93,5 +113,32 @@ describe("runImprove", () => {
     } finally {
       closeDb(checkDb);
     }
+  });
+
+  it("requalifies an uninstalled mapped skill to create-skill and writes its skeleton", async () => {
+    // A real project dir (the skeleton is written under its outDir) and a home
+    // dir whose inventory is non-empty but lacks `systematic-debugging`.
+    const projectDir = mkdtempSync(join(tmpdir(), "chardon-proj-"));
+    const homeDir = mkdtempSync(join(tmpdir(), "chardon-home-"));
+    const otherSkill = join(homeDir, ".claude", "skills", "other");
+    mkdirSync(otherSkill, { recursive: true });
+    writeFileSync(join(otherSkill, "SKILL.md"), "---\nname: other-skill\n---\n");
+
+    process.env.CHARDON_DB = dbPath;
+    const db2 = openDb();
+    const repo = "myproject"; // repoSlug of the seeded session
+    writeSession(db2, { id: "s-fail", repo, sessionType: "main" });
+    for (let i = 0; i < 3; i++) {
+      writeEvent(db2, { sessionId: "s-fail", tool: "Bash", success: false, meta: { cmd: "npm run build" } });
+    }
+    closeDb(db2);
+
+    writeFileSync(join(projectDir, ".chardon.json"), JSON.stringify({ repoName: repo }));
+    const { digest } = await runImprove({ projectDir, hoursBack: 24, homeDir });
+
+    const skeletonPath = join(projectDir, "docs/chardon", "proposed", "skill-npm-run-build.md");
+    expect(digest).toContain("**create-skill** → `systematic-debugging`");
+    expect(digest).toContain(`↳ skeleton: ${skeletonPath}`);
+    expect(existsSync(skeletonPath)).toBe(true);
   });
 });
