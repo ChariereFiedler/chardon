@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname, basename } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -142,6 +142,201 @@ describe("notify hook — in-process run() tests", () => {
       (process.stdout as any).write = origWrite;
     }
     expect(chunks.join("")).toBe("");
+  });
+});
+
+describe("notify hook: real-time nudges", () => {
+  const FIXED_NOW = new Date("2026-07-23T10:00:00Z");
+  const TODAY = "2026-07-23";
+
+  let dbFile: string, project: string, repo: string;
+  let savedDb: string | undefined;
+
+  beforeEach(() => {
+    dbFile = join(mkdtempSync(join(tmpdir(), "chardon-")), "t.db");
+    project = mkdtempSync(join(tmpdir(), "proj-"));
+    repo = basename(project);
+    savedDb = process.env.CHARDON_DB;
+    process.env.CHARDON_DB = dbFile;
+  });
+
+  afterEach(() => {
+    if (savedDb !== undefined) {
+      process.env.CHARDON_DB = savedDb;
+    } else {
+      delete process.env.CHARDON_DB;
+    }
+  });
+
+  /** Runs run() in-process with a captured stdout; returns what was written. */
+  function captureRun(payload: unknown, envOverride: Record<string, string | undefined> = {}): string {
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      CLAUDE_PROJECT_DIR: project,
+      CHARDON_ACTIVE: "1",
+      ...envOverride,
+    };
+    for (const [k, v] of Object.entries(envOverride)) {
+      if (v === undefined) delete env[k];
+    }
+    const chunks: string[] = [];
+    const origWrite = process.stdout.write.bind(process.stdout);
+    (process.stdout as any).write = (chunk: string) => {
+      chunks.push(chunk);
+      return true;
+    };
+    try {
+      run(payload, env, FIXED_NOW);
+    } finally {
+      (process.stdout as any).write = origWrite;
+    }
+    return chunks.join("");
+  }
+
+  /** Writes a project-level .chardon.json override. */
+  function writeProjectConfig(config: object): void {
+    writeFileSync(join(project, ".chardon.json"), JSON.stringify(config));
+  }
+
+  function bashPayload(command: string): object {
+    return { tool_name: "Bash", tool_input: { command } };
+  }
+
+  it("emits the toil alert once per day, then stays silent (dedupe)", () => {
+    const db = openDb();
+    writeSession(db, { id: "s1", repo, sessionType: "main" });
+    for (let i = 0; i < 5; i++) {
+      writeEvent(db, { sessionId: "s1", tool: "Bash", success: true, meta: { cmd: "npm test" } });
+    }
+    closeDb(db);
+
+    expect(captureRun(bashPayload("ls"))).toMatch(/toil loop/i);
+    expect(captureRun(bashPayload("ls"))).toBe("");
+  });
+
+  it("warns when the command about to run failed repeatedly today", () => {
+    writeProjectConfig({ toilExclusions: ["npm run e2e"] });
+    const db = openDb();
+    writeSession(db, { id: "s1", repo, sessionType: "main" });
+    for (let i = 0; i < 3; i++) {
+      writeEvent(db, { sessionId: "s1", tool: "Bash", success: false, meta: { cmd: "npm run e2e" } });
+    }
+    closeDb(db);
+
+    const out = captureRun(bashPayload("npm run e2e"));
+    expect(out).toContain("[chardon] this command failed 3 times today; consider systematic debugging before rerunning.");
+    // Deduped on the second run of the same day.
+    expect(captureRun(bashPayload("npm run e2e"))).toBe("");
+  });
+
+  it("stays silent when the command does not match a failure cluster", () => {
+    writeProjectConfig({ toilExclusions: ["npm run e2e"] });
+    const db = openDb();
+    writeSession(db, { id: "s1", repo, sessionType: "main" });
+    for (let i = 0; i < 3; i++) {
+      writeEvent(db, { sessionId: "s1", tool: "Bash", success: false, meta: { cmd: "npm run e2e" } });
+    }
+    closeDb(db);
+
+    expect(captureRun(bashPayload("npm run build"))).toBe("");
+  });
+
+  it("warns when the command about to run is a slow drain today", () => {
+    writeProjectConfig({ toilExclusions: ["npm run build"] });
+    const db = openDb();
+    writeSession(db, { id: "s1", repo, sessionType: "main" });
+    for (let i = 0; i < 3; i++) {
+      writeEvent(db, {
+        sessionId: "s1",
+        tool: "Bash",
+        success: true,
+        durationMs: 60_000,
+        meta: { cmd: "npm run build" },
+      });
+    }
+    closeDb(db);
+
+    const out = captureRun(bashPayload("npm run build"));
+    expect(out).toContain("[chardon] this command averages 60s per run today; consider running it in the background.");
+    expect(captureRun(bashPayload("npm run build"))).toBe("");
+  });
+
+  it("warns once at 80% of the daily token budget", () => {
+    writeProjectConfig({ tokenBudgetPerDay: 1000 });
+    const db = openDb();
+    db.prepare(
+      `INSERT INTO token_usage (date, origin, repo, input_tokens, output_tokens)
+       VALUES (?, 'main', ?, 800, 50)`,
+    ).run(TODAY, repo);
+    closeDb(db);
+
+    const out = captureRun(bashPayload("ls"));
+    expect(out).toContain("[chardon] token budget warning: 850 of 1000 tokens used today (over 80%).");
+    expect(captureRun(bashPayload("ls"))).toBe("");
+  });
+
+  it("warns once at 100% of the daily token budget, independent of the 80% nudge", () => {
+    writeProjectConfig({ tokenBudgetPerDay: 1000 });
+    const db = openDb();
+    db.prepare(
+      `INSERT INTO token_usage (date, origin, repo, input_tokens, output_tokens)
+       VALUES (?, 'main', ?, 800, 50)`,
+    ).run(TODAY, repo);
+    closeDb(db);
+
+    // 80% nudge fires first.
+    expect(captureRun(bashPayload("ls"))).toMatch(/over 80%/);
+
+    const db2 = openDb();
+    db2.prepare(`UPDATE token_usage SET input_tokens = 1200 WHERE date = ? AND repo = ?`).run(TODAY, repo);
+    closeDb(db2);
+
+    const out = captureRun(bashPayload("ls"));
+    expect(out).toContain("[chardon] token budget exceeded: 1250 of 1000 tokens used today.");
+    expect(captureRun(bashPayload("ls"))).toBe("");
+  });
+
+  it("stays silent when the token budget is not configured", () => {
+    const db = openDb();
+    db.prepare(
+      `INSERT INTO token_usage (date, origin, repo, input_tokens, output_tokens)
+       VALUES (?, 'main', ?, 999999, 0)`,
+    ).run(TODAY, repo);
+    closeDb(db);
+
+    expect(captureRun(bashPayload("ls"))).toBe("");
+  });
+
+  it("emits nothing without CHARDON_ACTIVE even with pending nudges", () => {
+    writeProjectConfig({ tokenBudgetPerDay: 1000, toilExclusions: ["npm run e2e"] });
+    const db = openDb();
+    writeSession(db, { id: "s1", repo, sessionType: "main" });
+    for (let i = 0; i < 3; i++) {
+      writeEvent(db, { sessionId: "s1", tool: "Bash", success: false, meta: { cmd: "npm run e2e" } });
+    }
+    db.prepare(
+      `INSERT INTO token_usage (date, origin, repo, input_tokens, output_tokens)
+       VALUES (?, 'main', ?, 2000, 0)`,
+    ).run(TODAY, repo);
+    closeDb(db);
+
+    expect(captureRun(bashPayload("npm run e2e"), { CHARDON_ACTIVE: undefined })).toBe("");
+  });
+
+  it("fails open on an unopenable DB (in-process and as a subprocess)", () => {
+    // A directory is not a valid SQLite file: openDb() throws.
+    const brokenDb = mkdtempSync(join(tmpdir(), "chardon-broken-"));
+    expect(() =>
+      captureRun(bashPayload("ls"), { CHARDON_DB: brokenDb }),
+    ).not.toThrow();
+
+    const out = runHookCapture(JSON.stringify(bashPayload("ls")), {
+      CHARDON_DB: brokenDb,
+      CLAUDE_PROJECT_DIR: project,
+      CHARDON_ACTIVE: "1",
+    });
+    expect(out.code).toBe(0);
+    expect(out.stdout).toBe("");
   });
 });
 

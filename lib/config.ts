@@ -116,6 +116,14 @@ export function repoSlug(projectDir: string): string {
 }
 
 /**
+ * Token-usage origin of a project directory: `worktree` when the directory
+ * carries the worktree suffix, `main` otherwise.
+ */
+export function repoOrigin(projectDir: string): "main" | "worktree" {
+  return WORKTREE_SUFFIX_PATTERN.test(basename(projectDir)) ? "worktree" : "main";
+}
+
+/**
  * Resolves the report output directory, confined to the project.
  *
  * `outDir` comes from the project's committed `.chardon.json`, which is untrusted:
