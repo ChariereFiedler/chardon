@@ -35,8 +35,9 @@ export function renderInspect(d: InspectData): string {
   }
   lines.push(
     "",
-    "The only data that can leave this machine is the optional weekly LLM synthesis",
-    "(`/chardon-weekly`), which runs only when you set `ANTHROPIC_API_KEY`.",
+    "Two opt-in features can send data off this machine: the weekly LLM synthesis",
+    "(`/chardon-weekly`, only when you set `ANTHROPIC_API_KEY`) and the GitLab counts",
+    "of the status line (only when `.chardon.json` sets `gitlab.enabled`).",
   );
   return lines.join("\n");
 }
