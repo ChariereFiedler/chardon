@@ -158,3 +158,31 @@ describe("roi", () => {
     expect(r!.delta).toBeGreaterThan(0);
   });
 });
+
+describe("measureAction on infer-skill", () => {
+  it("re-counts the pattern support via mining, not proposeActions", () => {
+    const repo = "alpha";
+    for (let i = 0; i < 3; i++) {
+      const id = `mine${i}`;
+      writeSession(db, { id, repo, sessionType: "main" });
+      writeEvent(db, { sessionId: id, tool: "Edit", success: true, meta: { file: "/p/src/core/a.ts" } });
+      writeEvent(db, { sessionId: id, tool: "Bash", success: true, meta: { cmd: "npm test", cmd_class: "test" } });
+      writeEvent(db, { sessionId: id, tool: "Bash", success: true, meta: { cmd: "git commit", cmd_class: "git" } });
+    }
+    db.prepare(
+      `INSERT INTO actions (repo, kind, target, pattern_type, baseline, status)
+       VALUES (?, 'infer-skill', 'edit@core > test > git', 'recurring_procedure', 3, 'applied')`,
+    ).run(repo);
+    const id = (db.prepare(`SELECT id FROM actions WHERE kind = 'infer-skill'`).get() as { id: number }).id;
+
+    const NOW = new Date("2026-07-24T12:00:00Z");
+    const still = measureAction(db, id, 24, NOW);
+    expect(still).toEqual({ baseline: 3, after: 3, delta: 0 });
+
+    // The procedure disappears from the stream: support drops to zero.
+    db.prepare(`DELETE FROM events`).run();
+    db.prepare(`UPDATE actions SET status = 'applied' WHERE id = ?`).run(id);
+    const gone = measureAction(db, id, 24, NOW);
+    expect(gone).toEqual({ baseline: 3, after: 0, delta: 3 });
+  });
+});
