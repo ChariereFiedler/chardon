@@ -3,7 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDb, closeDb, writeSession, writeEvent } from "./db.ts";
-import { detectToilLoops, detectColdReads, computeVelocity, detectRetryStorms, detectFailingCommands, detectSlowCommands, detectSkillUsage, detectCrossRepoCommands, detectSlugCollision, RETRY_MIN, TOIL_MIN, FAIL_MIN, SLOW_MIN, SLOW_MS } from "./patterns.ts";
+import { detectToilLoops, detectColdReads, computeVelocity, detectRetryStorms, detectFailingCommands, detectSlowCommands, detectSkillUsage, detectCrossRepoCommands, detectSlugCollision, detectEditedWithoutTests, detectUnverifiedCommits, RETRY_MIN, TOIL_MIN, FAIL_MIN, SLOW_MIN, SLOW_MS, EDIT_NO_TEST_MIN } from "./patterns.ts";
 
 let db: ReturnType<typeof openDb>;
 beforeEach(() => {
@@ -134,6 +134,89 @@ describe("patterns", () => {
   it("detectCrossRepoCommands ignores a command confined to a single repo", () => {
     for (let i = 0; i < 5; i++) writeEvent(db, { sessionId: "s1", tool: "Bash", success: true, meta: { cmd: "npm run only" } });
     expect(detectCrossRepoCommands(db, 24).find((x) => x.cmd === "npm run only")).toBeUndefined();
+  });
+});
+
+describe("method detectors (cmd_class based)", () => {
+  const testRun = (sessionId: string, success = true) =>
+    writeEvent(db, { sessionId, tool: "Bash", success, meta: { cmd: "npm test", cmd_class: "test" } });
+  const edit = (sessionId: string, file = "src/a.ts") =>
+    writeEvent(db, { sessionId, tool: "Edit", success: true, meta: { file } });
+  const commit = (sessionId: string, msg = "x") =>
+    writeEvent(db, { sessionId, tool: "Bash", success: true, meta: { cmd: `git commit -m '${msg}'`, cmd_class: "git" } });
+
+  it("detectEditedWithoutTests flags a session with >= EDIT_NO_TEST_MIN edits and no test run", () => {
+    for (let i = 0; i < EDIT_NO_TEST_MIN; i++) edit("s1");
+    // Prove the session is classify-era with a non-test classified command.
+    writeEvent(db, { sessionId: "s1", tool: "Bash", success: true, meta: { cmd: "ls", cmd_class: "other" } });
+    expect(detectEditedWithoutTests(db, "p", 24)).toEqual([{ sessionId: "s1", edits: EDIT_NO_TEST_MIN }]);
+  });
+
+  it("detectEditedWithoutTests stays silent when a test or typecheck ran in the session", () => {
+    for (let i = 0; i < EDIT_NO_TEST_MIN; i++) edit("s1");
+    testRun("s1");
+    expect(detectEditedWithoutTests(db, "p", 24)).toHaveLength(0);
+
+    writeSession(db, { id: "s-tc", repo: "p", sessionType: "main" });
+    for (let i = 0; i < EDIT_NO_TEST_MIN; i++) edit("s-tc");
+    writeEvent(db, { sessionId: "s-tc", tool: "Bash", success: true, meta: { cmd: "npm run typecheck", cmd_class: "typecheck" } });
+    expect(detectEditedWithoutTests(db, "p", 24)).toHaveLength(0);
+  });
+
+  it("detectEditedWithoutTests ignores sessions below the edit threshold", () => {
+    for (let i = 0; i < EDIT_NO_TEST_MIN - 1; i++) edit("s1");
+    writeEvent(db, { sessionId: "s1", tool: "Bash", success: true, meta: { cmd: "ls", cmd_class: "other" } });
+    expect(detectEditedWithoutTests(db, "p", 24)).toHaveLength(0);
+  });
+
+  it("detectEditedWithoutTests skips legacy sessions with no classified Bash event", () => {
+    // Legacy era: Bash events without cmd_class, so the session cannot be judged.
+    for (let i = 0; i < EDIT_NO_TEST_MIN; i++) edit("s1");
+    writeEvent(db, { sessionId: "s1", tool: "Bash", success: true, meta: { cmd: "npm test" } });
+    expect(detectEditedWithoutTests(db, "p", 24)).toHaveLength(0);
+  });
+
+  it("detectEditedWithoutTests is scoped by repo", () => {
+    writeSession(db, { id: "sq", repo: "q", sessionType: "main" });
+    for (let i = 0; i < EDIT_NO_TEST_MIN; i++) edit("sq");
+    writeEvent(db, { sessionId: "sq", tool: "Bash", success: true, meta: { cmd: "ls", cmd_class: "other" } });
+    expect(detectEditedWithoutTests(db, "p", 24)).toHaveLength(0);
+  });
+
+  it("detectUnverifiedCommits flags a commit with no prior successful test in the session", () => {
+    commit("s1", "unverified");
+    const res = detectUnverifiedCommits(db, "p", 24);
+    expect(res.count).toBe(1);
+    expect(res.sample[0]).toContain("git commit");
+  });
+
+  it("detectUnverifiedCommits stays silent when a successful test precedes the commit", () => {
+    testRun("s1");
+    commit("s1");
+    expect(detectUnverifiedCommits(db, "p", 24).count).toBe(0);
+  });
+
+  it("detectUnverifiedCommits ignores a failed test run as verification", () => {
+    testRun("s1", false);
+    commit("s1");
+    expect(detectUnverifiedCommits(db, "p", 24).count).toBe(1);
+  });
+
+  it("detectUnverifiedCommits requires the test in the SAME session", () => {
+    writeSession(db, { id: "s2", repo: "p", sessionType: "main" });
+    testRun("s2");
+    commit("s1");
+    expect(detectUnverifiedCommits(db, "p", 24).count).toBe(1);
+  });
+
+  it("detectUnverifiedCommits only counts commits, not other git commands", () => {
+    writeEvent(db, { sessionId: "s1", tool: "Bash", success: true, meta: { cmd: "git push", cmd_class: "git" } });
+    expect(detectUnverifiedCommits(db, "p", 24).count).toBe(0);
+  });
+
+  it("detectUnverifiedCommits skips legacy commit events without cmd_class", () => {
+    writeEvent(db, { sessionId: "s1", tool: "Bash", success: true, meta: { cmd: "git commit -m 'legacy'" } });
+    expect(detectUnverifiedCommits(db, "p", 24).count).toBe(0);
   });
 });
 

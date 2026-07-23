@@ -101,6 +101,53 @@ describe("renderDailyReport", () => {
   });
 });
 
+describe("renderDailyReport · Method signals", () => {
+  const base = {
+    date: "2026-07-23",
+    velocity: { sessions: 1, tools: 1, failures: 0 },
+    toil: [],
+    coldReads: [],
+    retryStorms: [],
+    tokens: { inputTokens: 0, outputTokens: 0, cacheRead: 0, cacheCreation: 0, drift: false },
+  };
+
+  it("renders sessions that edited without running tests", () => {
+    const md = renderDailyReport({
+      ...base,
+      methodSignals: {
+        editedWithoutTests: [{ sessionId: "sess-1", edits: 7 }],
+        unverifiedCommits: { count: 0, sample: [] },
+      },
+    });
+    expect(md).toContain("## Method signals");
+    expect(md).toContain("### Edits without a test run");
+    expect(md).toContain("| `sess-1` | 7 |");
+  });
+
+  it("renders commits made without a prior passing test", () => {
+    const md = renderDailyReport({
+      ...base,
+      methodSignals: {
+        editedWithoutTests: [],
+        unverifiedCommits: { count: 2, sample: ["git commit -m 'x'"] },
+      },
+    });
+    expect(md).toContain("## Method signals");
+    expect(md).toContain("### Commits without a prior passing test");
+    expect(md).toContain("2 commit(s) went in with no successful test run earlier in the session");
+    expect(md).toContain("git commit -m 'x'");
+  });
+
+  it("omits the section when both signals are empty or absent", () => {
+    expect(renderDailyReport(base)).not.toContain("## Method signals");
+    const md = renderDailyReport({
+      ...base,
+      methodSignals: { editedWithoutTests: [], unverifiedCommits: { count: 0, sample: [] } },
+    });
+    expect(md).not.toContain("## Method signals");
+  });
+});
+
 describe("generateDailyReport — outDir resolved against projectDir", () => {
   let dbFile: string;
   let projectDir: string;

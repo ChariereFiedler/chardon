@@ -195,6 +195,107 @@ export function detectColdReads(
     .all(repo, `-${hoursBack}`, min) as unknown as ColdRead[];
 }
 
+/** Minimum Edit/Write events in a session before "no test run" is a signal. */
+export const EDIT_NO_TEST_MIN = 5;
+/** Maximum sample commands returned by detectUnverifiedCommits. */
+export const UNVERIFIED_SAMPLE_LIMIT = 5;
+/** Redacted-command prefix identifying a commit among cmd_class 'git' events. */
+const GIT_COMMIT_PREFIX = "git commit";
+
+export interface EditedWithoutTests {
+  sessionId: string;
+  edits: number;
+}
+
+export interface UnverifiedCommits {
+  count: number;
+  sample: string[];
+}
+
+/**
+ * Method signal: sessions with at least `minEdits` Edit/Write events and not a
+ * single Bash event classified `test` or `typecheck` in the window.
+ *
+ * Relies on `meta.cmd_class`, written at collection time. Legacy events predate
+ * that field, so a session is only judged when it holds at least one classified
+ * Bash event (classify-era proof); older sessions are skipped silently.
+ */
+export function detectEditedWithoutTests(
+  db: ChardonDb,
+  repo: string,
+  hoursBack: number,
+  minEdits: number = EDIT_NO_TEST_MIN,
+): EditedWithoutTests[] {
+  return db
+    .prepare(
+      `SELECT e.session_id AS sessionId,
+              COUNT(*) AS edits
+       FROM events e
+       JOIN sessions s ON e.session_id = s.id
+       WHERE e.tool IN ('Edit', 'Write')
+         AND s.repo = ?
+         AND e.ts > datetime('now', ? || ' hours')
+       GROUP BY e.session_id
+       HAVING edits >= ?
+          AND EXISTS (
+            SELECT 1 FROM events c
+            WHERE c.session_id = e.session_id
+              AND c.tool = 'Bash'
+              AND json_extract(c.meta, '$.cmd_class') IS NOT NULL
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM events v
+            WHERE v.session_id = e.session_id
+              AND v.tool = 'Bash'
+              AND json_extract(v.meta, '$.cmd_class') IN ('test', 'typecheck')
+          )
+       ORDER BY edits DESC
+       LIMIT 20`,
+    )
+    .all(repo, `-${hoursBack}`, minEdits) as unknown as EditedWithoutTests[];
+}
+
+/**
+ * Method signal: `git commit` runs (cmd_class 'git', redacted cmd starting with
+ * "git commit") with no earlier successful cmd_class 'test' event in the same
+ * session. Returns the count plus a bounded sample of the offending commands.
+ *
+ * Legacy events without `meta.cmd_class` never match the 'git' filter, so they
+ * are skipped silently: only classify-era commits count.
+ */
+export function detectUnverifiedCommits(
+  db: ChardonDb,
+  repo: string,
+  hoursBack: number,
+): UnverifiedCommits {
+  const rows = db
+    .prepare(
+      `SELECT json_extract(e.meta, '$.cmd') AS cmd
+       FROM events e
+       JOIN sessions s ON e.session_id = s.id
+       WHERE e.tool = 'Bash'
+         AND s.repo = ?
+         AND e.ts > datetime('now', ? || ' hours')
+         AND json_extract(e.meta, '$.cmd_class') = 'git'
+         AND json_extract(e.meta, '$.cmd') LIKE ? || '%'
+         AND NOT EXISTS (
+           SELECT 1 FROM events t
+           WHERE t.session_id = e.session_id
+             AND t.id < e.id
+             AND t.tool = 'Bash'
+             AND t.success = 1
+             AND json_extract(t.meta, '$.cmd_class') = 'test'
+         )
+       ORDER BY e.id`,
+    )
+    .all(repo, `-${hoursBack}`, GIT_COMMIT_PREFIX) as unknown as { cmd: string }[];
+
+  return {
+    count: rows.length,
+    sample: rows.slice(0, UNVERIFIED_SAMPLE_LIMIT).map((r) => r.cmd),
+  };
+}
+
 /**
  * Computes velocity: number of sessions, tool calls, and failures
  * within the `hoursBack` time window.

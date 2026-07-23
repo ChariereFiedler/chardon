@@ -10,7 +10,11 @@ import {
   detectColdReads,
   detectRetryStorms,
   detectSlugCollision,
+  detectEditedWithoutTests,
+  detectUnverifiedCommits,
   type RetryStorm,
+  type EditedWithoutTests,
+  type UnverifiedCommits,
 } from "../lib/patterns.ts";
 import { detectTokenDrift, estimateCostUsd } from "../lib/token-parser.ts";
 
@@ -40,6 +44,43 @@ export interface DailyReportData {
   repo?: string;
   /** Distinct project roots seen for this slug (collision when above 1). */
   slugRoots?: number;
+  /** Method signals (cmd_class based): edits with no test run, unverified commits. */
+  methodSignals?: {
+    editedWithoutTests: EditedWithoutTests[];
+    unverifiedCommits: UnverifiedCommits;
+  };
+}
+
+/** Renders the "Method signals" section, or nothing when both signals are empty. */
+function renderMethodSignals(signals: DailyReportData["methodSignals"]): string[] {
+  if (!signals) return [];
+  const { editedWithoutTests, unverifiedCommits } = signals;
+  if (editedWithoutTests.length === 0 && unverifiedCommits.count === 0) return [];
+
+  const lines: string[] = ["## Method signals", ""];
+
+  if (editedWithoutTests.length > 0) {
+    lines.push("### Edits without a test run (per session)");
+    lines.push("| Session | Edits |");
+    lines.push("|---|---|");
+    for (const s of editedWithoutTests) {
+      lines.push(`| \`${s.sessionId}\` | ${s.edits} |`);
+    }
+    lines.push("");
+  }
+
+  if (unverifiedCommits.count > 0) {
+    lines.push("### Commits without a prior passing test");
+    lines.push(
+      `${unverifiedCommits.count} commit(s) went in with no successful test run earlier in the session.`,
+    );
+    for (const cmd of unverifiedCommits.sample) {
+      lines.push(`- \`${cmd}\``);
+    }
+    lines.push("");
+  }
+
+  return lines;
 }
 
 // ---------------------------------------------------------------------------
@@ -127,6 +168,8 @@ export function renderDailyReport(data: DailyReportData): string {
     }
   }
 
+  sections.push(...renderMethodSignals(data.methodSignals));
+
   return sections.join("\n");
 }
 
@@ -204,7 +247,11 @@ export async function generateDailyReport(opts: {
 
     const health = readHealth(db, repo, date);
     const slugRoots = detectSlugCollision(db, repo);
-    markdown = renderDailyReport({ date, velocity, toil, coldReads, retryStorms, tokens, health, repo, slugRoots });
+    const methodSignals = {
+      editedWithoutTests: detectEditedWithoutTests(db, repo, ANALYSIS_WINDOW_HOURS),
+      unverifiedCommits: detectUnverifiedCommits(db, repo, ANALYSIS_WINDOW_HOURS),
+    };
+    markdown = renderDailyReport({ date, velocity, toil, coldReads, retryStorms, tokens, health, repo, slugRoots, methodSignals });
   } finally {
     closeDb(db);
   }
