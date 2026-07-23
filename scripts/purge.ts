@@ -6,7 +6,7 @@ import { purgeOldData, type PurgeResult } from "../lib/retention.ts";
 
 /** Pure render of a purge result (data → string). */
 export function renderPurge(retentionDays: number, r: PurgeResult): string {
-  return `Purged history older than ${retentionDays} days: ${r.events} event(s), ${r.sessions} session(s), ${r.tokenUsage} token-usage row(s). Database compacted.`;
+  return `Purged history older than ${retentionDays} days: ${r.events} event(s), ${r.sessions} session(s), ${r.tokenUsage} token-usage row(s), ${r.nudges} nudge(s). Database compacted.`;
 }
 
 /**

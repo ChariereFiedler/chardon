@@ -7,11 +7,12 @@ import { renderPurge, runPurge } from "./purge.ts";
 
 describe("purge", () => {
   it("renderPurge summarizes rows removed (pure)", () => {
-    const s = renderPurge(90, { events: 3, sessions: 1, tokenUsage: 2 });
+    const s = renderPurge(90, { events: 3, sessions: 1, tokenUsage: 2, nudges: 4 });
     expect(s).toContain("older than 90 days");
     expect(s).toContain("3 event(s)");
     expect(s).toContain("1 session(s)");
     expect(s).toContain("2 token-usage row(s)");
+    expect(s).toContain("4 nudge(s)");
   });
 
   it("runPurge opens the DB, purges old rows of the project's repo, and returns a summary", () => {
