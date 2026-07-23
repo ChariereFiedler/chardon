@@ -12,6 +12,7 @@ import { isMainModule } from "../lib/is-main.ts";
 
 import { openDb, closeDb, writeEvent, writeSession, recordHealth } from "../lib/db.ts";
 import { redactCmd } from "../lib/redact.ts";
+import { classifyCommand } from "../lib/cmd-class.ts";
 import { repoSlug } from "../lib/config.ts";
 import { debug } from "../lib/debug.ts";
 
@@ -33,7 +34,10 @@ function buildMeta(payload: PostToolPayload): Record<string, unknown> {
   const input = payload.tool_input ?? {};
 
   if (tool === "Bash") {
-    return { cmd: redactCmd(String(input.command ?? "")) };
+    const rawCmd = String(input.command ?? "");
+    // Classify the raw command BEFORE redaction/truncation, so the stored
+    // class reflects the real intent even when redaction rewrites the text.
+    return { cmd: redactCmd(rawCmd), cmd_class: classifyCommand(rawCmd) };
   }
   if (["Edit", "Write", "Read"].includes(tool)) {
     return { file: String(input.file_path ?? "").slice(0, 80) };

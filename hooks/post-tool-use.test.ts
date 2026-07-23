@@ -174,6 +174,39 @@ describe("post-tool-use hook — in-process run() tests", () => {
     expect(JSON.parse(row.meta).file).toBe("lib/foo.ts");
   });
 
+  it("stores cmd_class alongside the redacted cmd for Bash events", () => {
+    const env = { ...process.env, CLAUDE_PROJECT_DIR: project };
+    run(
+      { session_id: "s-class", tool_name: "Bash", tool_input: { command: "npm run test:e2e" }, tool_response: { is_error: false } },
+      env,
+    );
+    const db = openDb();
+    const row = db.prepare("SELECT meta FROM events WHERE session_id='s-class'").get() as { meta: string };
+    closeDb(db);
+    const meta = JSON.parse(row.meta);
+    expect(meta.cmd).toBe("npm run test:e2e");
+    expect(meta.cmd_class).toBe("test");
+  });
+
+  it("classifies the raw command even when redaction rewrites part of it", () => {
+    const env = { ...process.env, CLAUDE_PROJECT_DIR: project };
+    run(
+      {
+        session_id: "s-class-redact",
+        tool_name: "Bash",
+        tool_input: { command: "git commit -m 'glpat-secret1234567890abcd'" },
+        tool_response: { is_error: false },
+      },
+      env,
+    );
+    const db = openDb();
+    const row = db.prepare("SELECT meta FROM events WHERE session_id='s-class-redact'").get() as { meta: string };
+    closeDb(db);
+    const meta = JSON.parse(row.meta);
+    expect(meta.cmd).not.toContain("glpat-secret");
+    expect(meta.cmd_class).toBe("git");
+  });
+
   it("records success=false for is_error responses", () => {
     const env = { ...process.env, CLAUDE_PROJECT_DIR: project };
     run(
