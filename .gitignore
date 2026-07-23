@@ -4,6 +4,7 @@ node_modules/
 *.db-shm
 coverage/
 docs/chardon/
+docs/audit/
 .superpowers/
 .stryker-tmp/
 reports/
