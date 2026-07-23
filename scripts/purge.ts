@@ -1,7 +1,7 @@
 import { isMainModule } from "../lib/is-main.ts";
 
 import { closeDb, openDb } from "../lib/db.ts";
-import { loadConfig } from "../lib/config.ts";
+import { loadConfig, repoSlug } from "../lib/config.ts";
 import { purgeOldData, type PurgeResult } from "../lib/retention.ts";
 
 /** Pure render of a purge result (data → string). */
@@ -19,7 +19,7 @@ export function runPurge(opts: { projectDir: string; now: Date; retentionDays?: 
 
   const db = openDb();
   try {
-    const result = purgeOldData(db, retentionDays, now);
+    const result = purgeOldData(db, retentionDays, now, repoSlug(projectDir));
     return { summary: renderPurge(retentionDays, result) };
   } finally {
     closeDb(db);
