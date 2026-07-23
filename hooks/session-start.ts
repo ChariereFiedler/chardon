@@ -7,6 +7,7 @@
  * @last-reviewed 2026-06-25
  */
 
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { basename } from "node:path";
@@ -23,6 +24,9 @@ const WORKTREE_SUFFIX_PATTERN = /-wt-\d+$/;
 
 /** Git refs are short in practice; cap what reaches the user-supplied regex. */
 const MAX_BRANCH_LENGTH = 200;
+
+/** Hex chars kept from the sha256 of the project root (collision detection). */
+const ROOT_HASH_LENGTH = 12;
 
 /**
  * Core logic: inserts a session row for the given parsed input.
@@ -90,6 +94,9 @@ export function run(input: unknown, env: NodeJS.ProcessEnv, now: Date = new Date
         gitBranch: gitBranch || undefined,
         ticketIid,
         sessionType,
+        // Short root-path hash: lets the daily report detect two different
+        // directories silently sharing one repo slug, without storing the path.
+        rootHash: createHash("sha256").update(projectDir).digest("hex").slice(0, ROOT_HASH_LENGTH),
       });
 
       // Session-start briefing: open actions, yesterday's top friction, and a

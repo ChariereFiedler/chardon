@@ -264,3 +264,19 @@ describe("session-start — git worktree detection", () => {
     }
   });
 });
+
+describe("session-start — root hash for slug-collision detection", () => {
+  it("stores a stable short hash of the project root on the session row", () => {
+    const dbFile2 = join(mkdtempSync(join(tmpdir(), "chardon-rh-")), "t.db");
+    const projectDir = mkdtempSync(join(tmpdir(), "proj-rh-"));
+    run({ session_id: "rh1" }, { CHARDON_DB: dbFile2, CLAUDE_PROJECT_DIR: projectDir });
+    process.env.CHARDON_DB = dbFile2;
+    const db = openDb();
+    try {
+      const row = db.prepare("SELECT root_hash FROM sessions WHERE id = 'rh1'").get() as { root_hash: string };
+      expect(row.root_hash).toMatch(/^[0-9a-f]{12}$/);
+    } finally {
+      closeDb(db);
+    }
+  });
+});

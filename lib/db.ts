@@ -91,6 +91,14 @@ export function openDb(): ChardonDb {
       if (!String((err as Error).message).includes("duplicate column")) throw err;
     }
   }
+  if (columnMissing(db, "sessions", "root_hash")) {
+    try {
+      db.exec("ALTER TABLE sessions ADD COLUMN root_hash TEXT");
+    } catch (err) {
+      // Same check-then-act race as above: a duplicate column is success.
+      if (!String((err as Error).message).includes("duplicate column")) throw err;
+    }
+  }
 
   // Stamp the schema generation so future non-additive drifts are detectable.
   // PRAGMA takes no bind parameters; the value is an internal integer constant.
@@ -149,9 +157,18 @@ function backfillTokenUsageRepo(db: ChardonDb): void {
  * before the column shipped). `CREATE TABLE IF NOT EXISTS` cannot add it, so
  * `openDb` reconciles with an additive `ALTER TABLE ... ADD COLUMN`.
  */
+/**
+ * True when `table` exists but lacks `column` (a pre-column legacy DB).
+ * Both names are internal constants, never user input: PRAGMA takes no
+ * bind parameters, so this is the one sanctioned interpolation site.
+ */
+function columnMissing(db: ChardonDb, table: string, column: string): boolean {
+  const columns = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+  return columns.length > 0 && !columns.some((c) => c.name === column);
+}
+
 function hookHealthMissingLastError(db: ChardonDb): boolean {
-  const columns = db.prepare("PRAGMA table_info(hook_health)").all() as { name: string }[];
-  return columns.length > 0 && !columns.some((c) => c.name === "last_error");
+  return columnMissing(db, "hook_health", "last_error");
 }
 
 /** Closes the SQLite connection, ignoring errors (e.g. double-close). */
@@ -175,12 +192,14 @@ export function writeSession(
     gitBranch?: string;
     ticketIid?: number;
     sessionType: "main" | "worktree";
+    /** Short hash of the project root path, for slug-collision detection. */
+    rootHash?: string;
   },
 ): void {
   db.prepare(
-    `INSERT OR IGNORE INTO sessions (id, repo, git_branch, ticket_iid, session_type)
-     VALUES (?, ?, ?, ?, ?)`,
-  ).run(s.id, s.repo, s.gitBranch ?? null, s.ticketIid ?? null, s.sessionType);
+    `INSERT OR IGNORE INTO sessions (id, repo, git_branch, ticket_iid, session_type, root_hash)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+  ).run(s.id, s.repo, s.gitBranch ?? null, s.ticketIid ?? null, s.sessionType, s.rootHash ?? null);
 }
 
 /**
