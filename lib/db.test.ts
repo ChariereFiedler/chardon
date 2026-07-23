@@ -139,7 +139,15 @@ describe("db migration: token_usage.repo backfill (pre-686a939 DBs)", () => {
 
 describe("db file permissions", () => {
   it("creates the DB file owner-only even under a permissive umask", () => {
-    const prev = process.umask(0);
+    // Worker threads (Stryker's vitest runner) cannot change the umask; the
+    // assertion still holds there because the file is created with an explicit
+    // mode, so the widened umask is a bonus, not a precondition.
+    let prev: number | undefined;
+    try {
+      prev = process.umask(0);
+    } catch {
+      // Not settable in a worker thread.
+    }
     try {
       process.env.CHARDON_DB = join(mkdtempSync(join(tmpdir(), "chardon-perm-")), "t.db");
       const db = openDb();
@@ -148,7 +156,7 @@ describe("db file permissions", () => {
       const mode = statSync(process.env.CHARDON_DB).mode & 0o777;
       expect(mode).toBe(0o600);
     } finally {
-      process.umask(prev);
+      if (prev !== undefined) process.umask(prev);
     }
   });
 });
