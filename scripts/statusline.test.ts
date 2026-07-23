@@ -97,6 +97,7 @@ describe("collectGitlab", () => {
       tokenBudgetPerDay: 0,
       retentionDays: 90,
       thresholds: { toilMin: 3, retryMin: 4, coldMin: 3, failMin: 3, slowMin: 3, slowMs: 30_000 },
+      skillMap: {},
       toilExclusions: [],
       gitlab: { enabled: true, projectId: "123", tokenEnv: TOKEN_ENV, ...overrides },
     };
