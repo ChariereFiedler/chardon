@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { openDb, closeDb, writeSession, writeEvent } from "../lib/db.ts";
 import { openActions } from "../lib/improve.ts";
 import { renderImproveDigest, runImprove } from "./improve.ts";
@@ -140,5 +140,32 @@ describe("runImprove", () => {
     expect(digest).toContain("**create-skill** → `systematic-debugging`");
     expect(digest).toContain(`↳ skeleton: ${skeletonPath}`);
     expect(existsSync(skeletonPath)).toBe(true);
+  });
+});
+
+describe("runImprove: pending procedure candidates", () => {
+  it("mentions pending procedure candidates and stays silent once proposed", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "proj-hint-"));
+    process.env.CHARDON_DB = join(projectDir, "t.db");
+    const db = openDb();
+    const repo = basename(projectDir);
+    for (let i = 0; i < 3; i++) {
+      const id = `hint${i}`;
+      writeSession(db, { id, repo, sessionType: "main" });
+      writeEvent(db, { sessionId: id, tool: "Edit", success: true, meta: { file: "/p/src/core/a.ts" } });
+      writeEvent(db, { sessionId: id, tool: "Bash", success: true, meta: { cmd: "npm test", cmd_class: "test" } });
+      writeEvent(db, { sessionId: id, tool: "Bash", success: true, meta: { cmd: "git commit", cmd_class: "git" } });
+    }
+
+    const withHint = await runImprove({ projectDir, hoursBack: 24, now: new Date("2026-07-24T12:00:00Z") });
+    expect(withHint.digest).toContain("1 recurring procedure(s) detected: run /chardon-skills");
+
+    db.prepare(
+      `INSERT INTO actions (repo, kind, target, pattern_type, baseline, status)
+       VALUES (?, 'infer-skill', 'edit@core > test > git', 'recurring_procedure', 3, 'proposed')`,
+    ).run(repo);
+    const silent = await runImprove({ projectDir, hoursBack: 24, now: new Date("2026-07-24T12:00:00Z") });
+    expect(silent.digest).not.toContain("recurring procedure(s) detected");
+    closeDb(db);
   });
 });

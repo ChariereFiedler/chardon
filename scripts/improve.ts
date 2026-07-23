@@ -15,6 +15,7 @@ import {
   type Severity,
   type TokenContext,
 } from "../lib/improve.ts";
+import { mineProcedures } from "../lib/procedures.ts";
 import { ensureSkillSkeleton, listInstalledSkills } from "../lib/skills.ts";
 import { roiSummary, detectRegressions } from "../lib/roi.ts";
 import { detectCrossRepoCommands } from "../lib/patterns.ts";
@@ -202,6 +203,21 @@ export async function runImprove(opts: {
         severity: severityForProposal(a.patternType, a.baseline) as Severity,
       }));
     digest = renderImproveDigest({ proposals, regressions, crossRepo, skeletons: skeletonPaths(db, repo), open, roi });
+    // Inference hint: mined procedures not yet proposed point at /chardon-skills.
+    // Mining needs a clock, so the hint only renders when `now` is supplied.
+    if (now) {
+      const pending = mineProcedures(db, now)
+        .filter((c) => c.repos.includes(repo))
+        .filter(
+          (c) =>
+            db
+              .prepare(`SELECT 1 FROM actions WHERE repo = ? AND kind = 'infer-skill' AND target = ?`)
+              .get(repo, c.signature) === undefined,
+        ).length;
+      if (pending > 0) {
+        digest += `\n\n${pending} recurring procedure(s) detected: run /chardon-skills`;
+      }
+    }
   } finally {
     closeDb(db);
   }
