@@ -2,12 +2,16 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, dirname } from "node:path";
+import { basename, join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { openDb, closeDb } from "../lib/db.ts";
 import { run } from "./stop.ts";
 
 const HOOK = join(dirname(fileURLToPath(import.meta.url)), "stop.ts");
+
+// The auto-purge path runs VACUUM: slow enough under a loaded vitest worker
+// to overrun the default 5 s test timeout.
+const PURGE_TEST_TIMEOUT_MS = 20_000;
 
 function runHook(payload: string, env: Record<string, string>): number {
   try {
@@ -38,6 +42,12 @@ describe("stop hook — subprocess smoke tests", () => {
 
   it("fail-open on empty input", () => {
     expect(runHook("", { CHARDON_DB: dbFile, CLAUDE_PROJECT_DIR: project })).toBe(0);
+  });
+
+  it("fail-open when the DB path is unusable (auto-purge included)", () => {
+    // A directory as DB file: openDb() throws on every access.
+    const badDb = mkdtempSync(join(tmpdir(), "chardon-bad-"));
+    expect(runHook(JSON.stringify({ session_id: "z", cwd: project }), { CHARDON_DB: badDb, CLAUDE_PROJECT_DIR: project, CHARDON_OUT_DIR: project })).toBe(0);
   });
 });
 
@@ -86,6 +96,42 @@ describe("stop hook — in-process run() tests", () => {
     await expect(run("garbage", env)).resolves.toBeUndefined();
     await expect(run(null, env)).resolves.toBeUndefined();
   });
+
+  it("auto-purges history older than retention at session end", async () => {
+    const db = openDb();
+    const repo = basename(project);
+    db.prepare("INSERT INTO sessions (id, repo, session_type) VALUES ('s-live', ?, 'main')").run(repo);
+    // Stale session far beyond the default 90-day retention.
+    db.prepare("INSERT INTO sessions (id, repo, started_at, session_type) VALUES ('s-stale', ?, '2020-01-01T00:00:00Z', 'main')").run(repo);
+    closeDb(db);
+
+    await run({ session_id: "s-live" }, { ...process.env, CLAUDE_PROJECT_DIR: project, CHARDON_OUT_DIR: project });
+
+    const db2 = openDb();
+    const stale = db2.prepare("SELECT id FROM sessions WHERE id='s-stale'").get();
+    const logs = db2.prepare("SELECT COUNT(*) AS c FROM purge_log WHERE repo = ?").get(repo) as { c: number };
+    closeDb(db2);
+    expect(stale).toBeUndefined();
+    expect(logs.c).toBe(1);
+  }, PURGE_TEST_TIMEOUT_MS);
+
+  it("does not auto-purge again the same day (throttle)", async () => {
+    const db = openDb();
+    const repo = basename(project);
+    // A purge already logged moments ago for this repo.
+    db.prepare("INSERT INTO purge_log (ts, repo, retention_days, events, sessions, token_usage) VALUES (?, ?, 90, 0, 0, 0)").run(new Date().toISOString(), repo);
+    db.prepare("INSERT INTO sessions (id, repo, started_at, session_type) VALUES ('s-stale', ?, '2020-01-01T00:00:00Z', 'main')").run(repo);
+    closeDb(db);
+
+    await run({ session_id: "s-stale" }, { ...process.env, CLAUDE_PROJECT_DIR: project, CHARDON_OUT_DIR: project });
+
+    const db2 = openDb();
+    const stale = db2.prepare("SELECT id FROM sessions WHERE id='s-stale'").get();
+    const logs = db2.prepare("SELECT COUNT(*) AS c FROM purge_log").get() as { c: number };
+    closeDb(db2);
+    expect(stale).toBeDefined(); // throttled: nothing purged
+    expect(logs.c).toBe(1); // no second log row
+  }, PURGE_TEST_TIMEOUT_MS);
 
   it("does not write when CLAUDE_PROJECT_DIR is missing", async () => {
     // Seed a session so we can verify it stays open.

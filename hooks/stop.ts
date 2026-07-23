@@ -13,6 +13,8 @@ import { isMainModule } from "../lib/is-main.ts";
 import { openDb, closeDb, closeSession } from "../lib/db.ts";
 import { generateDailyReport } from "../scripts/analyze-daily.ts";
 import { aggregateTranscripts, upsertTokenUsage } from "../lib/token-parser.ts";
+import { loadConfig, repoSlug } from "../lib/config.ts";
+import { purgeOldData, shouldAutoPurge } from "../lib/retention.ts";
 import { debug } from "../lib/debug.ts";
 
 /**
@@ -20,7 +22,7 @@ import { debug } from "../lib/debug.ts";
  * Reads project configuration from `env` (not `process.env`).
  * Never throws — all DB/IO errors are caught internally.
  */
-export async function run(input: unknown, env: NodeJS.ProcessEnv): Promise<void> {
+export async function run(input: unknown, env: NodeJS.ProcessEnv, runNow: Date = new Date()): Promise<void> {
   try {
     // Propagate CHARDON_DB so openDb() picks up the right file.
     if (env.CHARDON_DB) {
@@ -41,7 +43,7 @@ export async function run(input: unknown, env: NodeJS.ProcessEnv): Promise<void>
     const projectDir = env.CLAUDE_PROJECT_DIR ?? "";
     if (!projectDir) return;
 
-    const now = new Date().toISOString();
+    const now = runNow.toISOString();
 
     const db = openDb();
     try {
@@ -64,9 +66,28 @@ export async function run(input: unknown, env: NodeJS.ProcessEnv): Promise<void>
 
     // Generate the daily report best-effort: failure does not prevent completion.
     try {
-      await generateDailyReport({ projectDir, now: new Date() });
+      await generateDailyReport({ projectDir, now: runNow });
     } catch {
       // Fail-open: report error silently ignored.
+    }
+
+    // Opportunistic retention best-effort: purge this repo's history older than
+    // retentionDays, at most once a day per repo (throttled via purge_log).
+    // VACUUM inside purgeOldData is bounded: local DB, single writer at a time.
+    try {
+      const retentionDays = loadConfig(projectDir).retentionDays;
+      const repo = repoSlug(projectDir);
+      const purgeNow = runNow;
+      const dbPurge = openDb();
+      try {
+        if (shouldAutoPurge(dbPurge, retentionDays, purgeNow, repo)) {
+          purgeOldData(dbPurge, retentionDays, purgeNow, repo);
+        }
+      } finally {
+        closeDb(dbPurge);
+      }
+    } catch {
+      // Fail-open: retention error silently ignored.
     }
   } catch (err) {
     // Absolute fail-open: any unexpected error is silently ignored (surfaced via CHARDON_DEBUG).

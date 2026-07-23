@@ -12,11 +12,28 @@ describe("inspect", () => {
       repo: "p",
       counts: [{ table: "events", rows: 3 }],
       sampleMeta: ["git push https://[REDACTED]@github.com"],
+      purgeHistory: [],
     });
     expect(md).toContain("| events | 3 |");
     expect(md).toContain("[REDACTED]");
     expect(md).toContain("0600");
     expect(md).toContain("weekly LLM synthesis");
+    expect(md).toContain("## Purge history");
+    expect(md).toContain("(none yet)");
+  });
+
+  it("renderInspect lists past purges with date, retention, and rows removed", () => {
+    const md = renderInspect({
+      dbPath: "/home/x/.claude/chardon.db",
+      repo: "p",
+      counts: [],
+      sampleMeta: [],
+      purgeHistory: [{ ts: "2026-07-20T08:00:00.000Z", retentionDays: 90, events: 12, sessions: 3, tokenUsage: 4 }],
+    });
+    expect(md).toContain("2026-07-20");
+    expect(md).toContain("retention 90d");
+    expect(md).toContain("12 event(s), 3 session(s), 4 token-usage row(s)");
+    expect(md).not.toContain("(none yet)");
   });
 
   it("runInspect reads the DB and surfaces stored command metadata", () => {

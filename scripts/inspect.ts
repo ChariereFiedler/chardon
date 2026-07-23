@@ -4,13 +4,25 @@ import { closeDb, openDb } from "../lib/db.ts";
 import type { ChardonDb } from "../lib/db.ts";
 import { dbPath, repoSlug } from "../lib/config.ts";
 
-const TABLES = ["sessions", "events", "token_usage", "actions", "patterns", "hook_health", "ticket_metrics"];
+const TABLES = ["sessions", "events", "token_usage", "actions", "patterns", "hook_health", "ticket_metrics", "purge_log", "nudges"];
+
+/** How many recent purge_log rows the report shows. */
+const PURGE_HISTORY_LIMIT = 5;
+
+export interface PurgeLogEntry {
+  ts: string;
+  retentionDays: number;
+  events: number;
+  sessions: number;
+  tokenUsage: number;
+}
 
 export interface InspectData {
   dbPath: string;
   repo: string;
   counts: { table: string; rows: number }[];
   sampleMeta: string[];
+  purgeHistory: PurgeLogEntry[];
 }
 
 /** Pure render of what the local DB holds (data → string). */
@@ -32,6 +44,16 @@ export function renderInspect(d: InspectData): string {
     lines.push("(no Bash command events stored yet)");
   } else {
     for (const m of d.sampleMeta) lines.push(`- \`${m}\``);
+  }
+  lines.push("", `## Purge history for \`${d.repo}\` (last ${PURGE_HISTORY_LIMIT})`);
+  if (d.purgeHistory.length === 0) {
+    lines.push("(none yet)");
+  } else {
+    for (const p of d.purgeHistory) {
+      lines.push(
+        `- ${p.ts.slice(0, 10)} · retention ${p.retentionDays}d · removed ${p.events} event(s), ${p.sessions} session(s), ${p.tokenUsage} token-usage row(s)`,
+      );
+    }
   }
   lines.push(
     "",
@@ -60,7 +82,27 @@ function collect(db: ChardonDb, repo: string): InspectData {
       )
       .all(repo) as { cmd: string }[]
   ).map((r) => r.cmd);
-  return { dbPath: dbPath(), repo, counts, sampleMeta };
+  const purgeHistory = (
+    db
+      .prepare(
+        `SELECT ts, retention_days, events, sessions, token_usage
+         FROM purge_log WHERE repo = ? ORDER BY id DESC LIMIT ?`,
+      )
+      .all(repo, PURGE_HISTORY_LIMIT) as {
+      ts: string;
+      retention_days: number;
+      events: number;
+      sessions: number;
+      token_usage: number;
+    }[]
+  ).map((r) => ({
+    ts: r.ts,
+    retentionDays: r.retention_days,
+    events: r.events,
+    sessions: r.sessions,
+    tokenUsage: r.token_usage,
+  }));
+  return { dbPath: dbPath(), repo, counts, sampleMeta, purgeHistory };
 }
 
 /** Opens the DB, gathers a transparency summary, and renders it. */
