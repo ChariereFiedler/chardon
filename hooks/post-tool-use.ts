@@ -88,10 +88,11 @@ export function run(input: unknown, env: NodeJS.ProcessEnv): void {
       writeEvent(db, { sessionId, tool, success, durationMs, meta });
       recordHealth(db, repo, true);
     } catch (err) {
-      // The DB opened but the write failed — record it so it is not truly silent.
+      // The DB opened but the write failed — record it (with the message, so
+      // the daily report can say what broke) instead of staying truly silent.
       debug("post-tool-use write", err);
       try {
-        recordHealth(db, repo, false);
+        recordHealth(db, repo, false, err instanceof Error ? err.message : String(err));
       } catch {
         // Health is best-effort.
       }

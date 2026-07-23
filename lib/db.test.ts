@@ -52,8 +52,51 @@ describe("db", () => {
     recordHealth(db, "p", true);
     recordHealth(db, "p", false);
     const today = new Date().toISOString().slice(0, 10);
-    expect(readHealth(db, "p", today)).toEqual({ ok: 2, failed: 1 });
-    expect(readHealth(db, "p", "1999-01-01")).toEqual({ ok: 0, failed: 0 });
+    expect(readHealth(db, "p", today)).toEqual({ ok: 2, failed: 1, lastError: null });
+    expect(readHealth(db, "p", "1999-01-01")).toEqual({ ok: 0, failed: 0, lastError: null });
+  });
+
+  it("recordHealth stores the failure message redacted and truncated", () => {
+    const secret = "glpat-secret1234567890abcd";
+    const longTail = "x".repeat(300);
+    recordHealth(db, "p", false, `write failed: ${secret} ${longTail}`);
+    const today = new Date().toISOString().slice(0, 10);
+    const health = readHealth(db, "p", today);
+    expect(health.failed).toBe(1);
+    expect(health.lastError).toContain("write failed: [REDACTED]");
+    expect(health.lastError!.length).toBeLessThanOrEqual(200);
+    // The raw token must never reach the DB, not even truncated away.
+    const raw = db.prepare("SELECT last_error FROM hook_health WHERE repo = 'p'").get() as { last_error: string };
+    expect(raw.last_error).not.toContain(secret);
+  });
+
+  it("recordHealth keeps the previous last_error when a later failure has no message", () => {
+    recordHealth(db, "p", false, "disk full");
+    recordHealth(db, "p", false);
+    const today = new Date().toISOString().slice(0, 10);
+    expect(readHealth(db, "p", today)).toEqual({ ok: 0, failed: 2, lastError: "disk full" });
+  });
+
+  it("adds last_error to a hook_health table created before the column existed", () => {
+    const path = join(mkdtempSync(join(tmpdir(), "chardon-hh-")), "legacy.db");
+    const legacy = new DatabaseSync(path);
+    legacy.exec(`
+      CREATE TABLE hook_health (
+        date TEXT NOT NULL, repo TEXT NOT NULL DEFAULT '',
+        ok INTEGER NOT NULL DEFAULT 0, failed INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (date, repo)
+      );
+    `);
+    legacy.close();
+    process.env.CHARDON_DB = path;
+    const migrated = openDb();
+    try {
+      recordHealth(migrated, "p", false, "boom");
+      const today = new Date().toISOString().slice(0, 10);
+      expect(readHealth(migrated, "p", today).lastError).toBe("boom");
+    } finally {
+      closeDb(migrated);
+    }
   });
 
   it("stamps the current schema version on a fresh DB", () => {

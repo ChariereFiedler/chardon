@@ -213,9 +213,17 @@ export async function generateDailyReport(opts: {
 // ---------------------------------------------------------------------------
 
 if (isMainModule("analyze-daily")) {
-  const { path } = await generateDailyReport({
-    projectDir: process.env.CLAUDE_PROJECT_DIR ?? process.cwd(),
-    now: new Date(),
-  });
-  console.log(path);
+  try {
+    const { path } = await generateDailyReport({
+      projectDir: process.env.CLAUDE_PROJECT_DIR ?? process.cwd(),
+      now: new Date(),
+    });
+    console.log(path);
+  } catch (err) {
+    // A corrupted or unreadable DB must yield a clean one-line error, not an
+    // uncaught stack trace. The message names the operation and the cause.
+    const cause = err instanceof Error ? err.message : String(err);
+    console.error(`analyze-daily: cannot generate the report: ${cause}`);
+    process.exit(1);
+  }
 }

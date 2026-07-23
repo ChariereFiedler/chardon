@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { execFileSync } from "node:child_process";
-import { mkdtempSync, existsSync, readdirSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { mkdtempSync, existsSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -157,5 +157,24 @@ describe("analyze-daily CLI entry", () => {
     }).trim();
     expect(out).toContain("daily-");
     expect(existsSync(out)).toBe(true);
+  });
+
+  it("fails with a clean error message when CHARDON_DB is corrupted", () => {
+    const dir = mkdtempSync(join(tmpdir(), "proj-"));
+    const dbFile = join(dir, "corrupt.db");
+    // Not a valid SQLite header: triggers SQLITE_NOTADB on the first statement.
+    writeFileSync(dbFile, "garbage bytes, not a sqlite database\n".repeat(4));
+    const script = join(dirname(fileURLToPath(import.meta.url)), "analyze-daily.ts");
+    const result = spawnSync("node", ["--experimental-strip-types", script], {
+      cwd: dir,
+      env: { ...process.env, CHARDON_DB: dbFile, CLAUDE_PROJECT_DIR: dir },
+      encoding: "utf8",
+    });
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe("");
+    // A single clean line, not an uncaught stack trace.
+    expect(result.stderr).toContain("analyze-daily: cannot generate the report:");
+    expect(result.stderr).not.toContain("Uncaught");
+    expect(result.stderr).not.toMatch(/^\s+at /m);
   });
 });

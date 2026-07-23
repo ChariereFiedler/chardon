@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { dbPath } from "./config.ts";
 import { debug } from "./debug.ts";
+import { redactSecrets } from "./redact.ts";
 
 // node:sqlite loaded via native require: prevents Vite/Vitest from trying to
 // resolve/bundle it (it would rewrite "node:sqlite" → "sqlite", which doesn't exist).
@@ -79,6 +80,18 @@ export function openDb(): ChardonDb {
 
   if (needsBackfill) backfillTokenUsageRepo(db);
 
+  // Additive reconciliation: hook_health tables created before last_error
+  // existed are not touched by CREATE TABLE IF NOT EXISTS, so add the column.
+  if (hookHealthMissingLastError(db)) {
+    try {
+      db.exec("ALTER TABLE hook_health ADD COLUMN last_error TEXT");
+    } catch (err) {
+      // Two hooks can race this check-then-act on an old DB; the loser's
+      // duplicate-column error means the column exists, which is the goal.
+      if (!String((err as Error).message).includes("duplicate column")) throw err;
+    }
+  }
+
   // Stamp the schema generation so future non-additive drifts are detectable.
   // PRAGMA takes no bind parameters; the value is an internal integer constant.
   const stamped = (db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version;
@@ -131,6 +144,16 @@ function backfillTokenUsageRepo(db: ChardonDb): void {
   }
 }
 
+/**
+ * True when `hook_health` exists but lacks the `last_error` column (a DB created
+ * before the column shipped). `CREATE TABLE IF NOT EXISTS` cannot add it, so
+ * `openDb` reconciles with an additive `ALTER TABLE ... ADD COLUMN`.
+ */
+function hookHealthMissingLastError(db: ChardonDb): boolean {
+  const columns = db.prepare("PRAGMA table_info(hook_health)").all() as { name: string }[];
+  return columns.length > 0 && !columns.some((c) => c.name === "last_error");
+}
+
 /** Closes the SQLite connection, ignoring errors (e.g. double-close). */
 export function closeDb(db: ChardonDb): void {
   try {
@@ -168,26 +191,67 @@ export function closeSession(db: ChardonDb, id: string, endedAt: string): void {
   db.prepare("UPDATE sessions SET ended_at = ? WHERE id = ?").run(endedAt, id);
 }
 
+/** Max stored length of a swallowed error message (redacted before truncation). */
+const LAST_ERROR_MAX_LENGTH = 200;
+
 /**
  * Records a collection outcome for today (`ok` or `failed`) in `hook_health`,
  * so the daily report can surface silent fail-open failures. Uses SQLite's own
  * `date('now')` — this is telemetry, not a value under test. Parameterized.
+ *
+ * On failure, an optional `errorMessage` is stored (redacted then truncated)
+ * into `last_error` so the report can say WHAT broke; a failure without a
+ * message keeps the previously stored error.
  */
-export function recordHealth(db: ChardonDb, repo: string, ok: boolean): void {
-  const col = ok ? "ok" : "failed";
+export function recordHealth(db: ChardonDb, repo: string, ok: boolean, errorMessage?: string): void {
+  if (ok) {
+    db.prepare(
+      `INSERT INTO hook_health (date, repo, ok, failed)
+       VALUES (date('now'), ?, 1, 0)
+       ON CONFLICT(date, repo) DO UPDATE SET ok = ok + 1`,
+    ).run(repo);
+    return;
+  }
+  const lastError =
+    errorMessage !== undefined ? redactSecrets(errorMessage).slice(0, LAST_ERROR_MAX_LENGTH) : null;
   db.prepare(
-    `INSERT INTO hook_health (date, repo, ok, failed)
-     VALUES (date('now'), ?, ?, ?)
-     ON CONFLICT(date, repo) DO UPDATE SET ${col} = ${col} + 1`,
-  ).run(repo, ok ? 1 : 0, ok ? 0 : 1);
+    `INSERT INTO hook_health (date, repo, ok, failed, last_error)
+     VALUES (date('now'), ?, 0, 1, ?)
+     ON CONFLICT(date, repo) DO UPDATE SET
+       failed = failed + 1,
+       last_error = COALESCE(excluded.last_error, last_error)`,
+  ).run(repo, lastError);
 }
 
-/** Reads the `(ok, failed)` collection counts for a repo on a given date. */
-export function readHealth(db: ChardonDb, repo: string, date: string): { ok: number; failed: number } {
+/** Reads the `(ok, failed, lastError)` collection health for a repo on a given date. */
+export function readHealth(
+  db: ChardonDb,
+  repo: string,
+  date: string,
+): { ok: number; failed: number; lastError: string | null } {
   const row = db
-    .prepare(`SELECT ok, failed FROM hook_health WHERE repo = ? AND date = ?`)
-    .get(repo, date) as { ok: number; failed: number } | undefined;
-  return row ?? { ok: 0, failed: 0 };
+    .prepare(`SELECT ok, failed, last_error FROM hook_health WHERE repo = ? AND date = ?`)
+    .get(repo, date) as { ok: number; failed: number; last_error: string | null } | undefined;
+  if (!row) return { ok: 0, failed: 0, lastError: null };
+  return { ok: row.ok, failed: row.failed, lastError: row.last_error };
+}
+
+/**
+ * Registers a nudge (real-time alert dedupe marker) for a day/repo/kind/target.
+ * Returns true when the nudge is new (the alert should fire), false when the
+ * same nudge was already registered that day (stay silent).
+ */
+export function registerNudge(
+  db: ChardonDb,
+  n: { date: string; repo: string; kind: string; target: string },
+): boolean {
+  const result = db
+    .prepare(
+      `INSERT OR IGNORE INTO nudges (date, repo, kind, target)
+       VALUES (?, ?, ?, ?)`,
+    )
+    .run(n.date, n.repo, n.kind, n.target);
+  return result.changes > 0;
 }
 
 /**

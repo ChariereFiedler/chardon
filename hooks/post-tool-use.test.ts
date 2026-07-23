@@ -66,6 +66,43 @@ describe("post-tool-use hook — subprocess smoke tests", () => {
   });
 });
 
+describe("post-tool-use hook · idempotent replay", () => {
+  it("dedupes the session but appends both events when the same payload is replayed", () => {
+    const dbFile = join(mkdtempSync(join(tmpdir(), "chardon-")), "t.db");
+    const project = mkdtempSync(join(tmpdir(), "proj-"));
+    const payload = JSON.stringify({
+      session_id: "replay-tool-sess",
+      cwd: project,
+      tool_name: "Bash",
+      tool_input: { command: "echo replay" },
+      tool_response: { is_error: false },
+    });
+    const env = { CHARDON_DB: dbFile, CLAUDE_PROJECT_DIR: project };
+
+    expect(runHook(payload, env)).toBe(0);
+    expect(runHook(payload, env)).toBe(0);
+
+    process.env.CHARDON_DB = dbFile;
+    const db = openDb();
+    try {
+      const sessions = db
+        .prepare("SELECT COUNT(*) AS n FROM sessions WHERE id = ?")
+        .get("replay-tool-sess") as { n: number };
+      // The implicit session insert is INSERT OR IGNORE: replays never duplicate it.
+      expect(sessions.n).toBe(1);
+
+      const events = db
+        .prepare("SELECT COUNT(*) AS n FROM events WHERE session_id = ?")
+        .get("replay-tool-sess") as { n: number };
+      // Events are append rows by design: each PostToolUse is a distinct tool call,
+      // so an identical payload sent twice legitimately yields two event rows.
+      expect(events.n).toBe(2);
+    } finally {
+      closeDb(db);
+    }
+  });
+});
+
 describe("post-tool-use hook — in-process run() tests", () => {
   let dbFile: string, project: string;
   let savedDb: string | undefined;
@@ -147,6 +184,33 @@ describe("post-tool-use hook — in-process run() tests", () => {
     const row = db.prepare("SELECT success FROM events WHERE session_id='s5'").get() as { success: number };
     closeDb(db);
     expect(row.success).toBe(0);
+  });
+
+  it("records the swallowed write error, redacted, into hook_health.last_error", () => {
+    // Force writeEvent to fail with a message carrying a secret: the hook must
+    // record the failure and store the message redacted, never the raw token.
+    const setup = openDb();
+    setup.exec(
+      "CREATE TRIGGER fail_events BEFORE INSERT ON events BEGIN " +
+        "SELECT RAISE(ABORT, 'boom glpat-secret1234567890abcd'); END",
+    );
+    closeDb(setup);
+
+    const env = { ...process.env, CLAUDE_PROJECT_DIR: project };
+    run(
+      { session_id: "s-err", tool_name: "Bash", tool_input: { command: "ls" }, tool_response: { is_error: false } },
+      env,
+    );
+
+    const db = openDb();
+    const row = db.prepare("SELECT failed, last_error FROM hook_health").get() as {
+      failed: number;
+      last_error: string;
+    };
+    closeDb(db);
+    expect(row.failed).toBe(1);
+    expect(row.last_error).toContain("boom");
+    expect(row.last_error).not.toContain("glpat-secret");
   });
 
   it("does not throw on garbage input", () => {
