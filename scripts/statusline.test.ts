@@ -91,6 +91,7 @@ describe("collectGitlab", () => {
 
   function gitlabConfig(overrides: Partial<ChardonConfig["gitlab"]> = {}): ChardonConfig {
     return {
+      repoName: "",
       outDir: ".",
       ticketRegex: "",
       tokenBudgetPerDay: 0,

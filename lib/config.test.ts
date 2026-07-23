@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { loadConfig, dbPath, repoSlug, safeRegex, transcriptSlug } from "./config.ts";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 describe("config", () => {
   beforeEach(() => { delete process.env.CHARDON_DB; });
@@ -105,5 +105,25 @@ describe("safeRegex", () => {
 
   it("rejects an invalid pattern instead of throwing", () => {
     expect(safeRegex("(")).toBeNull();
+  });
+});
+
+describe("repoSlug with a repoName override", () => {
+  it("uses a valid repoName from .chardon.json over the basename", () => {
+    const d = mkdtempSync(join(tmpdir(), "chardon-"));
+    writeFileSync(join(d, ".chardon.json"), JSON.stringify({ repoName: "work-app" }));
+    expect(repoSlug(d)).toBe("work-app");
+  });
+
+  it("ignores an invalid repoName (untrusted input) and falls back to the basename", () => {
+    const d = mkdtempSync(join(tmpdir(), "chardon-"));
+    writeFileSync(join(d, ".chardon.json"), JSON.stringify({ repoName: "../evil path" }));
+    expect(repoSlug(d)).toBe(basename(d));
+  });
+
+  it("ignores an empty repoName (the shipped default)", () => {
+    const d = mkdtempSync(join(tmpdir(), "chardon-"));
+    writeFileSync(join(d, ".chardon.json"), JSON.stringify({ repoName: "" }));
+    expect(repoSlug(d)).toBe(basename(d));
   });
 });

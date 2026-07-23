@@ -426,6 +426,7 @@ export function collectGitlab(
 
 function fallbackConfig(): ReturnType<typeof loadConfig> {
   return {
+    repoName: "",
     outDir: ".",
     ticketRegex: "",
     tokenBudgetPerDay: 0,

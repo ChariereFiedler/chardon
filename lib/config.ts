@@ -15,6 +15,8 @@ export interface Thresholds {
 
 export interface ChardonConfig {
   outDir: string;
+  /** Optional explicit repo slug, overriding the directory basename (empty = unset). */
+  repoName: string;
   ticketRegex: string;
   tokenBudgetPerDay: number;
   /** Days of history to keep; rows older than this are removed by the purge command. */
@@ -108,10 +110,30 @@ export function dbPath(): string {
 }
 
 /**
- * Short repo slug: basename of the project directory without worktree suffix.
- * E.g. `/home/x/my-project-wt-3` → `my-project`.
+ * Shape a `repoName` override must match. It comes from a committed
+ * `.chardon.json` (untrusted): anything else is silently ignored.
+ */
+const REPO_NAME_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/;
+
+/**
+ * Short repo slug: the `repoName` override from `.chardon.json` when present
+ * and valid, otherwise the basename of the project directory without the
+ * worktree suffix. E.g. `/home/x/my-project-wt-3` → `my-project`.
+ *
+ * The override exists to separate two projects whose directories share a
+ * basename (`~/work/app` vs `~/personal/app`), which would otherwise merge
+ * their metrics under one slug.
  */
 export function repoSlug(projectDir: string): string {
+  try {
+    const raw = readFileSync(join(projectDir, PROJECT_CONFIG_FILENAME), "utf-8");
+    const override = (JSON.parse(raw) as { repoName?: unknown }).repoName;
+    if (typeof override === "string" && REPO_NAME_PATTERN.test(override)) {
+      return override;
+    }
+  } catch {
+    // Missing or malformed file: fall through to the basename.
+  }
   return basename(projectDir).replace(WORKTREE_SUFFIX_PATTERN, "");
 }
 

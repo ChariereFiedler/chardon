@@ -1,5 +1,6 @@
 {
   "outDir": "docs/chardon",
+  "repoName": "",
   "ticketRegex": "(?:feat|fix)/(\\d+)",
   "tokenBudgetPerDay": 0,
   "retentionDays": 90,
