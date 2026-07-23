@@ -1,12 +1,12 @@
 # Contributing to Chardon
 
 Thanks for your interest in improving Chardon. This is a small, focused
-plugin — contributions that keep it generic, fail-open, and well-tested are very
+plugin; contributions that keep it generic, fail-open, and well-tested are very
 welcome.
 
 ## Ground rules
 
-Read [`CLAUDE.md`](CLAUDE.md) first — it lists the non-negotiable invariants:
+Read [`CLAUDE.md`](CLAUDE.md) first: it lists the non-negotiable invariants:
 
 - **Fail-open hooks.** Every hook ends with `process.exit(0)`. A hook must never
   throw or block a session.
@@ -22,7 +22,7 @@ Read [`CLAUDE.md`](CLAUDE.md) first — it lists the non-negotiable invariants:
 **No runtime npm dependencies** (only Node ≥ 22). The `.ts` source is precompiled with
 esbuild to committed `dist/*.mjs` bundles, which the hooks and commands run with plain
 `node` (faster per-tool-call than re-stripping types every spawn). **Run `npm run build`
-after changing any `hooks/`, `lib/`, or `scripts/` code and commit the updated `dist/`** —
+after changing any `hooks/`, `lib/`, or `scripts/` code and commit the updated `dist/`**;
 CI fails if `dist/` is out of sync. `npm test` rebuilds automatically first.
 
 ## Development

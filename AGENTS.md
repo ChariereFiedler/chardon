@@ -1,7 +1,7 @@
-# Agent guide — Chardon
+# Agent guide: Chardon
 
 Doc aimed at an agent (LLM) that **works on** this repo, whichever harness it runs in.
-The full working rules live in [`CLAUDE.md`](CLAUDE.md) — read it first. What follows is
+The full working rules live in [`CLAUDE.md`](CLAUDE.md); read it first. What follows is
 the subset no agent may violate, restated here so it is never missed.
 
 ## What this repo is
@@ -22,10 +22,10 @@ Architecture and data model → [`docs/architecture.md`](docs/architecture.md).
   `~/.claude/projects/...` slug in `lib/`, `hooks/`, `scripts/`, `config/`, `schema.sql`.
   Derive everything from `CLAUDE_PROJECT_DIR`.
 - **Scope by `repo`.** Every row is scoped by the `repo` column. A hook without a usable
-  `CLAUDE_PROJECT_DIR` writes nothing — never create orphan rows.
+  `CLAUDE_PROJECT_DIR` writes nothing; never create orphan rows.
 - **Parameterized SQL only.** Bind `?` placeholders; never interpolate a value into a query.
 - **`node:sqlite` via `createRequire`.** Load it with
-  `createRequire(import.meta.url)("node:sqlite")` — never `import` / `await import` it, as
+  `createRequire(import.meta.url)("node:sqlite")`; never `import` / `await import` it, as
   Vite/Vitest rewrites `node:sqlite` → `sqlite` and the load fails.
 - **No npm SQLite dependency.** Node ≥ 22 ships what is needed.
 
@@ -63,7 +63,7 @@ CI enforces the same, plus coverage, mutation testing, and a gitleaks history sc
 
 `.claude/rules/`, `.claude/skills/`, `.claude/hooks/`, and `.claude/agents/` are installed
 from [Ronce Racine](https://github.com/ChariereFiedler/ronce-racine) and tracked by the
-lockfile `.claude/.ronce-racine.json`. Do not hand-edit them — they are refreshed from the
+lockfile `.claude/.ronce-racine.json`. Do not hand-edit them; they are refreshed from the
 canonical source:
 
 ```bash

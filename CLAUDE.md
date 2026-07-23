@@ -1,4 +1,4 @@
-# CLAUDE.md — Chardon
+# CLAUDE.md: Chardon
 
 Working rules for this repo. For what the plugin *is* and how to use it, see `README.md`;
 for how it's built, see `docs/architecture.md`.
@@ -6,17 +6,17 @@ for how it's built, see `docs/architecture.md`.
 ## Non-negotiable invariants
 
 - **Fail-open hooks.** Every hook ends with `process.exit(0)`. Empty/malformed stdin,
-  a missing `CLAUDE_PROJECT_DIR`, or an unavailable DB MUST exit 0 — no exception, no
+  a missing `CLAUDE_PROJECT_DIR`, or an unavailable DB MUST exit 0: no exception, no
   stray write. NEVER let a hook throw or block a session.
 - **Generic only.** NEVER hardcode a project path, repo name, tracker/GitLab id, or
   `~/.claude/projects/...` slug in `lib/`, `hooks/`, `scripts/`, `config/`, `schema.sql`.
   Derive everything from `CLAUDE_PROJECT_DIR`.
 - **Scope by `repo`.** Every row is scoped by the `repo` column. A hook without a usable
-  `CLAUDE_PROJECT_DIR` writes nothing — NEVER create orphan rows.
+  `CLAUDE_PROJECT_DIR` writes nothing; NEVER create orphan rows.
 - **Parameterized SQL only.** Bind `?` placeholders. NEVER interpolate a value into a
   query string.
 - **`node:sqlite` via `createRequire`.** Load it with
-  `createRequire(import.meta.url)("node:sqlite")`. NEVER `import` / `await import` it —
+  `createRequire(import.meta.url)("node:sqlite")`. NEVER `import` / `await import` it:
   Vite/Vitest rewrites `node:sqlite` → `sqlite` and the load fails.
 
 ## Testability (the design depends on it)
@@ -66,7 +66,7 @@ for how it's built, see `docs/architecture.md`.
 ## Don't assume present (not built yet)
 
 v1 is complete (collection, token parsing, daily/weekly reports, status line, and the
-improvement loop — including dormant-signal proposals, token-cost proposals, a self-tuning
+improvement loop, including dormant-signal proposals, token-cost proposals, a self-tuning
 loop with regression alerts, and the cross-project "Ronce Racine candidate" signal). Still
-**not** built — deferred to v1.1: `ticket_metrics` is defined in the schema but never
+**not** built, deferred to v1.1: `ticket_metrics` is defined in the schema but never
 populated.

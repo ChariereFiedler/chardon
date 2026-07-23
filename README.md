@@ -209,9 +209,18 @@ only**; transcript text never reaches the database.
 2. The optional GitLab section of the status line calls the GitLab API on each refresh
    (two requests) with the token you configured. Off by default.
 
-**Retention**: history accumulates until *you* run `/chardon-purge`; `retentionDays` is
-the window that purge enforces, scoped to the current repo. Uninstalling leaves the DB in
-place; delete the file to remove every trace.
+**Retention**: `retentionDays` (default 90) bounds the history kept per repo. At session
+end the Stop hook opportunistically purges the current repo's older rows, at most once a
+day per repo; each purge is logged in `purge_log` (visible via `/chardon-inspect`), and
+`/chardon-purge` stays the explicit trigger. Uninstalling leaves the DB in place; delete
+the file to remove every trace.
+
+**Backup**: the accumulated history *is* the value Chardon produces; the code is
+replaceable, `~/.claude/chardon.db` is not. If that history matters to you, include the
+file in your usual backups: a plain file copy taken while no Claude Code session is
+running is a valid backup. If the file is ever lost, nothing breaks: the schema
+self-recreates on the next hook and collection resumes from zero, only the history is
+gone.
 
 **The bundles are auditable**: hooks run as committed, precompiled `dist/*.mjs`; CI
 rebuilds them from source on every push and fails if they differ (`ci.yml`, "dist is in
@@ -247,7 +256,7 @@ deep-merged, so a partial override keeps the rest.
 | `ticketRegex` | `"(?:feat\|fix)/(\\d+)"` | pulls a ticket number out of the branch name; stored for the v1.1 ticket-lifecycle feature, no visible effect yet |
 | `toilExclusions` | `[]` | commands to ignore in toil detection |
 | `tokenBudgetPerDay` | `0` (off) | the status line flags `⚠` past this many tokens |
-| `retentionDays` | `90` | how far back `/chardon-purge` keeps the current repo's history |
+| `retentionDays` | `90` | how far back the automatic purge and `/chardon-purge` keep the current repo's history |
 | `thresholds` | see above | detection thresholds, raise them to cut noise |
 | `gitlab` | `{enabled: false}` | optional MR and issue counts in the status line |
 
@@ -265,7 +274,7 @@ Set these in the shell that launches `claude` (e.g. your shell profile), except
 | `CLAUDE_PROJECT_DIR` | project root, injected by Claude Code; without it a hook writes nothing |
 | `CHARDON_DB` | database path (default `~/.claude/chardon.db`) |
 | `CHARDON_DEBUG=1` | print swallowed hook errors to stderr instead of staying silent |
-| `CHARDON_ACTIVE=1` | enable inline toil alerts before repeated Bash commands (off by default to stay quiet; without it the alert hook costs nothing) |
+| `CHARDON_ACTIVE=1` | enable the live nudges: inline alerts before repeated, failing or slow Bash commands, token-budget warnings at 80% and 100%, and the session-start briefing (open actions, yesterday's top friction, collection-failure warning). Each alert fires at most once per day. Off by default to stay quiet; without it the alert hook costs nothing |
 | `CHARDON_MODEL` | override the model used by the weekly synthesis |
 
 ## Optional extras
@@ -286,17 +295,35 @@ the file):
 }
 ```
 
-It renders repo, branch, model and context use, active subagents, worktrees, and today's
-token count against your budget:
+The line is built from named segments:
 
+| Segment | Content |
+|---|---|
+| `project` | project name (from `package.json`, else the directory name) |
+| `branch` | current git branch |
+| `context` | model id and context tokens used vs the window size |
+| `subagents` | active subagent count |
+| `worktrees` | linked worktree count |
+| `tokens` | today's token count against your budget (with a `⚠` past it) |
+| `gitlab` | open MR and issue counts (needs `gitlab.enabled` in `.chardon.json`) |
+
+By default (no argument) it renders **only the monitoring segments**: `tokens`,
+`subagents`, `worktrees`, `gitlab`. Project, branch, and context are generic, so most
+status lines already show them; ask for them explicitly if you want Chardon to print
+them too:
+
+```bash
+node .../dist/statusline.mjs                          # 💰 142000/120000 ⚠ · 🤖 2 · 🌳 1
+node .../dist/statusline.mjs project branch tokens    # my-project · main · 💰 142000/120000 ⚠
 ```
-my-project · feat/412-billing · 🌳 1 · 💰 142000/120000 ⚠
-```
+
+Segments render in the order given, empty ones are omitted, and unknown names are
+ignored silently: a status line must never error.
 
 Two caveats. The path contains the plugin version and **breaks at every plugin update**
 until you edit it. And `settings.json` accepts a single status line: if you already have
-one, point `command` at a small wrapper script that prints your line and Chardon's on one
-line, e.g.:
+one, point `command` at a small wrapper script that appends Chardon's monitoring
+segments to your line (the default output no longer duplicates project or branch), e.g.:
 
 ```bash
 #!/bin/sh
@@ -400,7 +427,7 @@ Agent-facing working rules → [`AGENTS.md`](AGENTS.md) and [`CLAUDE.md`](CLAUDE
 ```bash
 npm install        # dev tooling only, never needed at runtime
 npm run build      # refresh dist/*.mjs (the bundles are committed)
-npm test           # 228 tests
+npm test           # 313 tests
 npm run typecheck
 npm run lint
 ```

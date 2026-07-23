@@ -23,12 +23,12 @@ All hooks are written in pure TypeScript, executed via `node --no-warnings --exp
 
 | File | Role |
 |---|---|
-| `schema.sql` | Idempotent DDL (5 tables, 6 indexes) — applied on every DB open |
-| `db.ts` | `openDb()` / `closeDb()` / `writeSession()` / `closeSession()` / `writeEvent()` — DatabaseSync wrapper + idempotent migrations |
-| `redact.ts` | `redactSecrets()` + `redactCmd()` — sanitizes bash commands before storage (tokens, passwords, URLs, JWTs, hex strings) |
+| `schema.sql` | Idempotent DDL (5 tables, 6 indexes), applied on every DB open |
+| `db.ts` | `openDb()` / `closeDb()` / `writeSession()` / `closeSession()` / `writeEvent()`: DatabaseSync wrapper + idempotent migrations |
+| `redact.ts` | `redactSecrets()` + `redactCmd()`: sanitizes bash commands before storage (tokens, passwords, URLs, JWTs, hex strings) |
 | `patterns.ts` | SQL queries: `detectToilLoops()`, `detectRetryStorms()`, `detectColdReads()`, `computeVelocity()` + exclusion lists |
 | `token-parser.ts` | Parses JSONL transcripts from `~/.claude/projects/`, aggregates by day/origin, upserts into `token_usage`, detects cache_read/output ratio drift |
-| `package.json` | `{"type":"module"}` — enables ES modules in this subdirectory |
+| `package.json` | `{"type":"module"}`: enables ES modules in this subdirectory |
 | `db.test.ts` | Vitest tests: schema, writeSession/Event, idempotence, repo isolation |
 | `redact.test.ts` | Redaction pattern tests |
 | `patterns.test.ts` | SQL tests for detectToilLoops/RetryStorms/ColdReads/Velocity |
@@ -76,9 +76,9 @@ Adjacent commands that consume data from scripts related to daily-improve:
 ### 1.6 Database
 
 - **Path**: `~/.claude/devmetrics.db` (global, scoped by `repo` column)
-- **Initialization**: idempotent DDL applied on every `openDb()` — no manual install step
+- **Initialization**: idempotent DDL applied on every `openDb()`, no manual install step
 - **WAL mode** + `busy_timeout = 5000` (concurrent hooks ↔ analysis scripts)
-- **Second DB**: `<project_root>/cycle-metrics.db` — belongs to the Cycle daemon (out of devmetrics core scope, but consumed by `daily-improve.ts` for token cost and skip patterns)
+- **Second DB**: `<project_root>/cycle-metrics.db`: belongs to the Cycle daemon (out of devmetrics core scope, but consumed by `daily-improve.ts` for token cost and skip patterns)
 
 ### 1.7 Wiring in `settings.json`
 
@@ -99,12 +99,12 @@ Adjacent commands that consume data from scripts related to daily-improve:
 ```
 
 Env vars read:
-- `DEVMETRICS_ACTIVE` (0/1) — enables inline toil notifications from `devmetrics-notify.ts`
-- `DEVMETRICS_LEVEL` (`full` / `warn_only`) — toil loop threshold: 3 (full) or 5 (warn_only)
-- `CLAUDE_PROJECT_DIR` — project root (used in all hooks)
-- `GITLAB_TOKEN` — for MRs + issues in statusline (optional)
-- `GITLAB_PROJECT_ID` — fallback `<project-id>` (strong coupling)
-- `WT_BUDGET_CAP`, `MR_BUDGET_CAP`, `CYCLE_MAX_AGENTS` — statusline caps
+- `DEVMETRICS_ACTIVE` (0/1): enables inline toil notifications from `devmetrics-notify.ts`
+- `DEVMETRICS_LEVEL` (`full` / `warn_only`): toil loop threshold: 3 (full) or 5 (warn_only)
+- `CLAUDE_PROJECT_DIR`: project root (used in all hooks)
+- `GITLAB_TOKEN`: for MRs + issues in statusline (optional)
+- `GITLAB_PROJECT_ID`: fallback `<project-id>` (strong coupling)
+- `WT_BUDGET_CAP`, `MR_BUDGET_CAP`, `CYCLE_MAX_AGENTS`: statusline caps
 
 ---
 
@@ -179,7 +179,7 @@ Populated by `token-parser.ts` during daily analysis, from JSONL transcripts in 
 
 ---
 
-## 3. User Surface — Analysis Commands
+## 3. User Surface: Analysis Commands
 
 | Command | Trigger | Output | Usage |
 |---|---|---|---|
@@ -214,13 +214,13 @@ Populated by `token-parser.ts` during daily analysis, from JSONL transcripts in 
 
 ### Entirely Generic (portable as-is)
 
-- `schema.sql` — universal tables, `repo` as partition key
-- `db.ts` — no project-specific references
-- `redact.ts` — universal redaction patterns (GitLab/GitHub/Jira tokens, JWTs…)
-- `patterns.ts` — pure SQL queries, parameterized by `repo` and `hoursBack`; only `TOIL_EXCLUSION_PREFIXES` / `TOIL_EXCLUSION_CONTAINS` lists need parameterization
-- `devmetrics-post-tool-use.ts` — generic capture of all events
-- `devmetrics-stop.ts` — only the `analyze-daily.ts` script path is hardcoded via `CLAUDE_PROJECT_DIR`
-- `devmetrics-session-start.ts` — only the ticket regex `(?:feat|fix)\/(\d+)` is coupled to GitLab convention
+- `schema.sql`: universal tables, `repo` as partition key
+- `db.ts`: no project-specific references
+- `redact.ts`: universal redaction patterns (GitLab/GitHub/Jira tokens, JWTs…)
+- `patterns.ts`: pure SQL queries, parameterized by `repo` and `hoursBack`; only `TOIL_EXCLUSION_PREFIXES` / `TOIL_EXCLUSION_CONTAINS` lists need parameterization
+- `devmetrics-post-tool-use.ts`: generic capture of all events
+- `devmetrics-stop.ts`: only the `analyze-daily.ts` script path is hardcoded via `CLAUDE_PROJECT_DIR`
+- `devmetrics-session-start.ts`: only the ticket regex `(?:feat|fix)\/(\d+)` is coupled to GitLab convention
 
 ### Needs Parameterization (per-project configuration)
 
@@ -235,7 +235,7 @@ Populated by `token-parser.ts` during daily analysis, from JSONL transcripts in 
 
 ### Strongly Coupled to granit-golem (to adapt / decouple)
 
-#### Coupling 1 — `agents-status.ts`: GitLab project and named worktrees
+#### Coupling 1, `agents-status.ts`: GitLab project and named worktrees
 
 ```typescript
 const PROJECT_ID = process.env.GITLAB_PROJECT_ID || '<project-id>'  // hardcoded ID
@@ -244,7 +244,7 @@ safeRun("pgrep -a -f 'claude' | grep -c 'granit-golem-wt-'")  // hardcoded name
 
 The worktree detection pattern `granit-golem-wt-*` and the GitLab ID `<project-id>` are hardcoded. Resolution: derive the pattern from `CLAUDE_PROJECT_DIR`, make `GITLAB_PROJECT_ID` required (no fallback).
 
-#### Coupling 2 — `token-parser.ts`: hardcoded `.claude/projects/` paths
+#### Coupling 2, `token-parser.ts`: hardcoded `.claude/projects/` paths
 
 ```typescript
 const MAIN_DIR_PATTERN = /^-home-user-lab-granit-golem$/
@@ -253,15 +253,15 @@ const WORKTREE_DIR_PATTERN = /^-home-user-lab-granit-golem-wt-/
 
 These patterns are computed from the project's absolute path (`~/lab/granit-golem` → `-home-user-lab-granit-golem`). Resolution: compute dynamically from `CLAUDE_PROJECT_DIR` by replacing `/` with `-`.
 
-#### Coupling 3 — `daily-improve.ts` + `analyze-weekly.ts`: dependency on the Cycle daemon
+#### Coupling 3, `daily-improve.ts` + `analyze-weekly.ts`: dependency on the Cycle daemon
 
 `daily-improve.ts` imports `openMetricsDb` from `./cycle/metrics` (which opens `cycle-metrics.db` at the project root). `analyze-weekly.ts` uses `@anthropic-ai/sdk` via Anthropic. These two components are not part of the core devmetrics but depend on it in the /daily-improve workflow.
 
 To decouple:
-- The "cycle token cost" section of `daily-improve.ts` is optional (try/catch) — can be removed for a standalone plugin
+- The "cycle token cost" section of `daily-improve.ts` is optional (try/catch); it can be removed for a standalone plugin
 - `analyze-weekly.ts` requires `ANTHROPIC_API_KEY` and the Anthropic SDK
 
-#### Coupling 4 — `patterns.ts`: granit-specific exclusions
+#### Coupling 4, `patterns.ts`: granit-specific exclusions
 
 ```typescript
 'curl -s "https://gitlab.com/api/v4/projects/<project-id>/pipelin',
@@ -273,10 +273,10 @@ These toil exclusions are project-specific. In a plugin, they must live in a con
 
 ### Discard (non-portable)
 
-- GitLab MRs and Issues sections of `agents-status.ts`: specific to GitLab + token + project ID — make optional behind feature flags
+- GitLab MRs and Issues sections of `agents-status.ts`: specific to GitLab + token + project ID; make optional behind feature flags
 - "Cycle agents" section of `agents-status.ts`: coupled to the granit-golem Cycle daemon
-- `daily-improve.ts` (entire file): too coupled (memories, worktrees, cycle skip events, retro-fixes on git) — to be split into layers in the plugin
-- `analyze-weekly.ts`: depends on `@anthropic-ai/sdk` and the Cycle daemon — optional feature
+- `daily-improve.ts` (entire file): too coupled (memories, worktrees, cycle skip events, retro-fixes on git); to be split into layers in the plugin
+- `analyze-weekly.ts`: depends on `@anthropic-ai/sdk` and the Cycle daemon; optional feature
 
 ---
 
@@ -306,10 +306,10 @@ These toil exclusions are project-specific. In a plugin, they must live in a con
 
 | Variable | Required | Default | Role |
 |---|---|---|---|
-| `CLAUDE_PROJECT_DIR` | Yes | `process.cwd()` | Project root — injected by Claude Code |
+| `CLAUDE_PROJECT_DIR` | Yes | `process.cwd()` | Project root, injected by Claude Code |
 | `DEVMETRICS_ACTIVE` | No | `'0'` | Enables inline toil notifications |
 | `DEVMETRICS_LEVEL` | No | `'full'` | Toil threshold: full=3, warn_only=5 |
-| `GITLAB_TOKEN` | No | — | MRs/Issues in statusline |
+| `GITLAB_TOKEN` | No | (none) | MRs/Issues in statusline |
 | `GITLAB_PROJECT_ID` | No | `'<project-id>'` (coupling!) | GitLab project ID |
 | `WT_BUDGET_CAP` | No | `6` | Worktree cap in statusline |
 | `MR_BUDGET_CAP` | No | `5` | MR cap in statusline |
@@ -326,10 +326,10 @@ The minimal portable pack includes:
 ```
 devmetrics-plugin/
   hooks/
-    devmetrics-session-start.ts      # SessionStart — insert session
-    devmetrics-post-tool-use.ts      # PostToolUse — insert event
-    devmetrics-stop.ts               # Stop — close session + launch analyze
-    devmetrics-notify.ts             # PreToolUse Bash — toil alert
+    devmetrics-session-start.ts      # SessionStart: insert session
+    devmetrics-post-tool-use.ts      # PostToolUse: insert event
+    devmetrics-stop.ts               # Stop: close session + launch analyze
+    devmetrics-notify.ts             # PreToolUse Bash: toil alert
   telemetry/
     schema.sql                       # Idempotent DDL
     db.ts                            # openDb/closeDb/writeSession/writeEvent
@@ -342,8 +342,8 @@ devmetrics-plugin/
   config/
     .devmetrics.json                 # Toil exclusions, out_dir, ticket_regex, gitlab_project_id
   commands/
-    devmetrics-daily.md              # /devmetrics-daily — view today's report
-    devmetrics-improve.md            # /devmetrics-improve — improved workflow (without cycle)
+    devmetrics-daily.md              # /devmetrics-daily: view today's report
+    devmetrics-improve.md            # /devmetrics-improve: improved workflow (without cycle)
   install.ts                         # Install script: copies hooks, patches settings.json
 ```
 
@@ -351,16 +351,16 @@ devmetrics-plugin/
 
 ```
   scripts/
-    analyze-weekly.ts                # Weekly LLM synthesis — requires ANTHROPIC_API_KEY
+    analyze-weekly.ts                # Weekly LLM synthesis: requires ANTHROPIC_API_KEY
 ```
 
 ### 6.3 Out of Plugin Scope
 
-- `daily-improve.ts` (cycle/granit memories coupling) — to be rewritten for the plugin
-- GitLab MRs/Issues sections of `agents-status.ts` — optional feature flag
-- "Cycle agents" section of `agents-status.ts` — specific to the Cycle daemon
-- `cycle-metrics.db` and all `scripts/dev/cycle/` — belongs to the separate Cycle plugin
-- `retro-fixes.ts` / `review-patterns.ts` — depend on git log and cycle_events respectively
+- `daily-improve.ts` (cycle/granit memories coupling): to be rewritten for the plugin
+- GitLab MRs/Issues sections of `agents-status.ts`: optional feature flag
+- "Cycle agents" section of `agents-status.ts`: specific to the Cycle daemon
+- `cycle-metrics.db` and all `scripts/dev/cycle/`: belongs to the separate Cycle plugin
+- `retro-fixes.ts` / `review-patterns.ts`: depend on git log and cycle_events respectively
 
 ---
 
@@ -381,11 +381,11 @@ devmetrics-plugin/
 
 | Batch | Content | Estimated effort |
 |---|---|---|
-| **Batch 1 — Portable core** | schema.sql, db.ts, redact.ts, patterns.ts, 4 hooks (session-start, post-tool-use, stop, notify), analyze-daily.ts, adapted existing tests, install.ts | **1-2 days** |
-| **Batch 2 — Generic token-parser** | Replace hardcoded regex patterns with dynamic computation, adapt tests | **2-4h** |
-| **Batch 3 — Generic agents-status** | Remove hardcoded `granit-golem-wt-` and `<project-id>`, make GitLab optional, extract core statusline section | **4-6h** |
-| **Batch 4 — Config + commands** | `.devmetrics.json`, `/devmetrics-daily`, `/devmetrics-improve` (without cycle), configurable TOIL_EXCLUSIONS | **4-6h** |
-| **Batch 5 — Optional analyze-weekly** | Decouple from cycle-metrics.db, make ANTHROPIC_API_KEY optional, adapt tests | **2-4h** |
+| **Batch 1: Portable core** | schema.sql, db.ts, redact.ts, patterns.ts, 4 hooks (session-start, post-tool-use, stop, notify), analyze-daily.ts, adapted existing tests, install.ts | **1-2 days** |
+| **Batch 2: Generic token-parser** | Replace hardcoded regex patterns with dynamic computation, adapt tests | **2-4h** |
+| **Batch 3: Generic agents-status** | Remove hardcoded `granit-golem-wt-` and `<project-id>`, make GitLab optional, extract core statusline section | **4-6h** |
+| **Batch 4: Config + commands** | `.devmetrics.json`, `/devmetrics-daily`, `/devmetrics-improve` (without cycle), configurable TOIL_EXCLUSIONS | **4-6h** |
+| **Batch 5: Optional analyze-weekly** | Decouple from cycle-metrics.db, make ANTHROPIC_API_KEY optional, adapt tests | **2-4h** |
 | **TOTAL** | | **~3-4 days** |
 
 ---

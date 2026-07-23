@@ -4,7 +4,35 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.0] — 2026-07-10
+## [Unreleased]
+
+### Added
+
+- Opportunistic retention: the Stop hook purges the current repo's history past
+  `retentionDays` at most once a day, and every purge is recorded in a new
+  `purge_log` table shown by `/chardon-inspect`.
+- `hook_health.last_error`: the last swallowed hook error (redacted, truncated)
+  now surfaces in the daily report's Collection health section.
+- Live nudges behind `CHARDON_ACTIVE=1`: inline alerts for repeated, failing and
+  slow Bash commands and for the token budget at 80% and 100%, deduplicated once
+  a day per repo via a new `nudges` table.
+- Start-of-session briefing (`CHARDON_ACTIVE=1`): open actions, yesterday's top
+  friction and a collection-failure warning, delivered as SessionStart context.
+- Composable status line: `statusline.mjs [segment...]` renders named segments;
+  the no-argument default shows only the monitoring segments.
+- Quality gates: Vitest coverage threshold on `lib/` and a Stryker break
+  threshold; replay-idempotence and corrupted-database tests.
+- Release workflow with provenance attestation of the `dist/` bundles, CodeQL
+  analysis, a deprecation policy and an incident template.
+
+### Fixed
+
+- `analyze-daily` now fails with a clean one-line error on an unreadable
+  database instead of a stack trace.
+- The GitLab status line collector hides the segment on malformed API payloads
+  instead of showing zero counts.
+
+## [0.1.0] - 2026-07-10
 
 Initial release: event collection (4 fail-open hooks → SQLite), token-cost parsing,
 daily and weekly reports, a live status line, and the improvement loop
@@ -14,12 +42,12 @@ daily and weekly reports, a live status line, and the improvement loop
 ### Changed
 - Hooks and the status line now run with `node --experimental-strip-types`
   instead of `npx tsx`. The plugin has **no runtime npm dependencies** and needs
-  no install step — only Node ≥ 22. Relative imports use the `.ts` extension.
+  no install step, only Node ≥ 22. Relative imports use the `.ts` extension.
 
 ### Fixed
 - Stop-hook crash (`no such column: repo`): CLI-entry guards now match the invoked
   filename instead of `import.meta.url`, which esbuild collapses to the host bundle's
-  URL — so a bundled entry (`analyze-daily` inside `dist/stop.mjs`) no longer runs its
+  URL, so a bundled entry (`analyze-daily` inside `dist/stop.mjs`) no longer runs its
   CLI block outside the hook's fail-open path.
 - Self-healing schema reconciliation: a `token_usage` table created before `repo`
   joined its primary key is rebuilt on open (existing rows kept, unscoped), instead of
@@ -27,7 +55,7 @@ daily and weekly reports, a live status line, and the improvement loop
 
 ### Performance
 - Hooks/commands now run **precompiled `dist/*.mjs` bundles** (esbuild) via plain
-  `node`, instead of type-stripping the `.ts` source on every spawn — roughly a 2–3×
+  `node`, instead of type-stripping the `.ts` source on every spawn, roughly a 2-3×
   reduction in per-tool-call latency. Bundles are committed (consumers still build
   nothing); `npm run build` regenerates them and CI checks `dist/` is in sync.
 

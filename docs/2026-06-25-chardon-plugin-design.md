@@ -1,4 +1,4 @@
-# Chardon — Workflow Monitoring Plugin · Design
+# Chardon: Workflow Monitoring Plugin · Design
 
 Status: approved (brainstorming) · 2026-06-25  
 Scoping source: [`2026-06-25-monitoring-plugin-scoping.md`](2026-06-25-monitoring-plugin-scoping.md)
@@ -9,9 +9,9 @@ Scoping source: [`2026-06-25-monitoring-plugin-scoping.md`](2026-06-25-monitorin
 observes session work, stores it, analyzes it, and **loops back** to improve the
 workflow. Three value axes guide features beyond simple data collection:
 
-1. **Token cost reduction** — make cost visible and actionable.
-2. **Workflow analysis** — understand the shape of the work, not just friction.
-3. **Self-improvement** — *detect → propose → apply → measure* feedback loop.
+1. **Token cost reduction**: make cost visible and actionable.
+2. **Workflow analysis**: understand the shape of the work, not just friction.
+3. **Self-improvement**: *detect → propose → apply → measure* feedback loop.
 
 The plugin is derived from the `devmetrics` stack of granit-golem, **decoupled** and
 **renamed** to be generic (runs on any project, including non-tordu-jardin ones).
@@ -19,7 +19,7 @@ The plugin is derived from the `devmetrics` stack of granit-golem, **decoupled**
 ### Why a dedicated plugin (and not a Ronce Racine family or an Ardente Forge module)
 
 Monitoring is an orthogonal concern, stateful (SQLite DB), with a minimum runtime
-requirement (Node ≥ 22) and its own config — a different *type* of object from Ronce
+requirement (Node ≥ 22) and its own config: a different *type* of object from Ronce
 Racine's stateless generic disciplines, and broader than Ardente Forge's
 GitLab/Cycle workflow (which the scoping deliberately decoupled it from). The Claude
 Code plugin format natively packages hooks + commands + skills + scripts = exactly
@@ -42,7 +42,7 @@ granit memories), `cycle-metrics.db`, Cycle sections of the statusline.
 A **generic and decoupled** version of the improvement loop (`/chardon-improve`)
 is, however, in scope (Batch 6).
 
-## Architecture — plugin packaging
+## Architecture: plugin packaging
 
 ```
 chardon/
@@ -68,9 +68,9 @@ chardon/
     analyze-weekly.ts      # LLM synthesis (optional, ANTHROPIC_API_KEY)
     statusline.ts          # live dashboard (ex agents-status, decoupled)
   commands/
-    chardon-daily.md        # /chardon-daily — today's report
-    chardon-weekly.md       # /chardon-weekly — LLM synthesis
-    chardon-improve.md      # /chardon-improve — prioritized action digest (Batch 6)
+    chardon-daily.md        # /chardon-daily, today's report
+    chardon-weekly.md       # /chardon-weekly, LLM synthesis
+    chardon-improve.md      # /chardon-improve, prioritized action digest (Batch 6)
   config/
     chardon.default.json    # defaults; project override via .chardon.json at its root
   *.test.ts                # Vitest, colocated
@@ -101,18 +101,18 @@ to override defaults. No manual file copying.
 
 DB: `~/.claude/chardon.db`, global, scoped by `repo` column, WAL mode +
 `busy_timeout=5000` (concurrent hooks ↔ analysis). Idempotent DDL applied on every
-`openDb()` — no DB install step.
+`openDb()`; no DB install step.
 
 ## Data Model
 
 Reuses the granit schema (tables `sessions`, `events`, `patterns`,
-`ticket_metrics`, `token_usage` — see scoping §2). v1 changes:
+`ticket_metrics`, `token_usage`; see scoping §2). v1 changes:
 
 - **`ticket_metrics` populated** (granit left it empty): `session_count`,
-  `fix_commits` (git log), `ci_failures`, `scope`, time-to-merge — supporting
+  `fix_commits` (git log), `ci_failures`, `scope`, time-to-merge, supporting
   axis 2 (ticket lifecycle).
 - **`patterns` persisted** when an action is proposed/applied (granit computed it
-  on the fly without persisting): supports ROI measurement (axis 3) — comparing
+  on the fly without persisting): supports ROI measurement (axis 3): comparing
   friction before/after over time.
 - **New `actions` table** (Batch 6): tracks a recommended action and its follow-up.
   ```sql
@@ -132,7 +132,7 @@ Reuses the granit schema (tables `sessions`, `events`, `patterns`,
 env `*TOKEN*/*KEY*/*SECRET*`, URLs with credentials, JWTs, hex ≥ 32) before storage,
 truncated to 60 chars. Unchanged from granit (100% portable).
 
-## Decoupling (vs granit) — detailed
+## Decoupling (vs granit), detailed
 
 | Point | Action |
 |-------|--------|
@@ -143,9 +143,9 @@ truncated to 60 chars. Unchanged from granit (100% portable).
 | ticket regex `(?:feat|fix)/(\d+)` | configurable (`.chardon.json` → `ticketRegex`) |
 | outDir `docs/dev-metrics/` | `CHARDON_OUT_DIR`, default `docs/chardon/` |
 
-## The 3 Axes — Features
+## The 3 Axes: Features
 
-### Axis 1 — Token Cost Reduction
+### Axis 1: Token Cost Reduction
 
 - **Live token budget**: statusline `tokens today / threshold`; `notify.ts` alerts on
   threshold breach (threshold in `.chardon.json`).
@@ -158,7 +158,7 @@ truncated to 60 chars. Unchanged from granit (100% portable).
 - **Sub-agent ROI**: cost of `Agent` dispatches flagged.
 - **Saveable €**: each top friction converted into avoided token cost.
 
-### Axis 2 — Workflow Analysis
+### Axis 2: Workflow Analysis
 
 - **Tool sequences**: mining of recurring chains (friction loops).
 - **Ticket lifecycle**: time-to-merge, sessions/ticket, fix_commits,
@@ -167,7 +167,7 @@ truncated to 60 chars. Unchanged from granit (100% portable).
 - **Friction by area**: files/scopes with recurring retry_storms.
 - **Velocity trends**: throughput over time, regressions.
 
-### Axis 3 — Self-improvement (loop)
+### Axis 3: Self-improvement (loop)
 
 - **`/chardon-improve`** (generic, without Cycle): prioritized 🔴🟡⚪ digest from
   `chardon.db` + memory folder (`~/.claude/projects/<slug>/memory`) + git log.
@@ -183,7 +183,7 @@ truncated to 60 chars. Unchanged from granit (100% portable).
 - **Runtime**: Node ≥ 22 (`node:sqlite`, experimental 22 / stable 24;
   `--experimental-strip-types`). README documents this; a non-blocking install check
   warns if Node < 22. No npm sqlite fallback.
-- **Error handling**: all hooks **fail-open** (exit 0 no matter what) —
+- **Error handling**: all hooks **fail-open** (exit 0 no matter what):
   a hook never breaks the session. DB unavailable / Node too old →
   silent no-op. Consistent with Ronce Racine's hook policy.
 - **Tests**: Vitest. Granit's `*.test.ts` (db, redact, patterns, token-parser,

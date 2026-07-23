@@ -1,4 +1,4 @@
-# Test strategy — Chardon
+# Test strategy: Chardon
 
 Framework: **Vitest**. `npm test` = `vitest run`, `npm run test:watch` during dev.
 
@@ -7,7 +7,7 @@ Framework: **Vitest**. `npm test` = `vitest run`, `npm run test:watch` during de
 - **Deterministic**: no test depends on the real clock or randomness. Time is injected
   (a `now` parameter), never `Date.now()` inside the logic under test.
 - **System-isolated**: no test touches `~/.claude/chardon.db`. Each test points
-  `CHARDON_DB` at a temp file (or `:memory:`) — see `lib/db.ts`, which MUST read the DB
+  `CHARDON_DB` at a temp file (or `:memory:`); see `lib/db.ts`, which MUST read the DB
   path from the env (a testability requirement).
 - **No network**: the LLM layer (`analyze-weekly`) and GitLab (status line) are mocked
   or flag-disabled in tests. No API calls in unit tests.
@@ -16,7 +16,7 @@ Framework: **Vitest**. `npm test` = `vitest run`, `npm run test:watch` during de
 
 ## Levels
 
-### 1. Unit — `lib/` layer (the bulk of coverage)
+### 1. Unit: `lib/` layer (the bulk of coverage)
 
 | Module | What is tested |
 |--------|----------------|
@@ -27,14 +27,14 @@ Framework: **Vitest**. `npm test` = `vitest run`, `npm run test:watch` during de
 | `improve.ts` | action prioritization (🔴🟡⚪) from a seeded DB + mocked git log |
 | `roi.ts` | an `action` lifecycle: `proposed → applied → measured`, before/after delta computation |
 
-### 2. Hooks (`hooks/`) — fail-open + effect
+### 2. Hooks (`hooks/`): fail-open + effect
 
 Each hook is run as a subprocess with a JSON payload on stdin and `CHARDON_DB` pointed at
 a temp DB:
 - **valid payload** → the expected write is present in the DB (session/event, etc.);
 - **empty / broken JSON / unavailable DB** → `exit 0`, no exception, no write.
 
-### 3. Scripts (`scripts/`) — deterministic output
+### 3. Scripts (`scripts/`): deterministic output
 
 - `analyze-daily.ts`: on a seeded DB, the generated Markdown contains the expected
   sections (velocity, frictions, tokens, score). The **render function is pure**
@@ -58,9 +58,9 @@ DB and pointing `CHARDON_DB` at it, `seed()` inserting typical sessions/events).
 1. `db.ts` reads the DB path from `CHARDON_DB` (default `~/.claude/chardon.db`).
 2. Any time-dependent logic receives `now` as a parameter.
 3. Renderings (daily report, status line) are **pure functions** separate from I/O.
-4. Slug/worktree resolution derives from `CLAUDE_PROJECT_DIR` — never a hardcoded path.
+4. Slug/worktree resolution derives from `CLAUDE_PROJECT_DIR`, never a hardcoded path.
 
-> Note: `token-parser`, `improve`, `roi`, `statusline` land in batches 2-6 — their rows
+> Note: `token-parser`, `improve`, `roi`, `statusline` land in batches 2-6; their rows
 > above describe the intended coverage, not yet-existing tests.
 
 ## LLM task evaluation
@@ -69,12 +69,12 @@ The LLM boundary in `scripts/analyze-weekly.ts` is injectable via the `ModelFn` 
 (exported from `lib/weekly.ts`). `generateWeeklyReport` accepts an optional `model`
 parameter that defaults to the real `callModel`; tests pass a synchronous stub instead.
 
-- **Normal suite** (`npm test`): uses a stub model — no network call, no `ANTHROPIC_API_KEY`
+- **Normal suite** (`npm test`): uses a stub model: no network call, no `ANTHROPIC_API_KEY`
   required. The `eval/` directory is excluded from the default `include` globs in
   `vitest.config.ts`. Two deterministic prompt-contract tests run here (see below).
 - **Eval suite** (`npm run eval`): runs `eval/weekly.eval.test.ts` with three scenarios
   against the real model, each gated by `describe.skipIf(!process.env.ANTHROPIC_API_KEY)`.
-  Without a key the suite reports as skipped — not failed.
+  Without a key the suite reports as skipped, not failed.
 - **Output length**: the synthesis returned by the model is capped at `SYNTHESIS_MAX_CHARS`
   (8000 characters) inside `renderWeeklyReport` before being included in the report. The
   cap is applied by a named constant; excess text is replaced with `… (truncated)`.

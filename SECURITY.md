@@ -21,14 +21,14 @@ transcript files to count tokens, runs `git`/`curl` for the status line, and rea
 `@anthropic-ai/sdk`), so the third-party supply-chain surface at runtime is effectively zero.
 
 **Trust boundaries.**
-- *Untrusted:* a project's committed `.chardon.json`. Its values are validated before use —
+- *Untrusted:* a project's committed `.chardon.json`. Its values are validated before use:
   e.g. `gitlab.projectId` must match `^\d+$` and external calls use `execFileSync` (no shell),
   so a hostile config cannot inject a command.
 - *Sensitive:* command lines. They are redacted (`lib/redact.ts`) and truncated before
   storage. Redaction is pattern-based (best-effort); a novel secret format could slip
-  through — report it. `/chardon-inspect` lets you see exactly what is stored.
+  through: report it. `/chardon-inspect` lets you see exactly what is stored.
 - *Outbound:* only the opt-in weekly LLM synthesis (`ANTHROPIC_API_KEY`), which sends an
-  **aggregated** summary — never raw events.
+  **aggregated** summary, never raw events.
 
 **Data at rest.** Local only; the DB is created `0600` (owner-only); history is bounded by
 `/chardon-purge`. No sync, no telemetry, no team aggregation.
@@ -36,6 +36,19 @@ transcript files to count tokens, runs `git`/`curl` for the status line, and rea
 **Non-goals.** chardon is not a sandbox and does not defend against a malicious Claude Code
 host or a compromised machine; it defends against hostile *project inputs* and accidental
 secret capture.
+
+## Token hygiene
+
+The optional GitLab status-line section authenticates with a token you provide
+through an environment variable (`gitlab.tokenEnv`, default `GITLAB_TOKEN`).
+
+- Grant it the **minimal scope**: `read_api` is enough; never `api` or `write_*`.
+- **Rotate it periodically**, and immediately if you suspect exposure.
+- Keep it **in an environment variable or secret manager only**: never in
+  `.chardon.json` (which is meant to be committed) or any other tracked file.
+
+The same rules apply to the optional `ANTHROPIC_API_KEY` used by the weekly
+synthesis.
 
 ## Reporting a vulnerability
 
@@ -49,3 +62,5 @@ acknowledge reports within a few days.
 ## Supported versions
 
 Security fixes target the latest released version on the default branch.
+Confirmed security fixes are released promptly as patch versions rather than
+waiting for the next feature release.
