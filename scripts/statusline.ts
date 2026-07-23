@@ -12,6 +12,7 @@ import { basename, join } from "node:path";
 import { loadConfig, repoSlug, transcriptSlug } from "../lib/config.ts";
 import { openDb, closeDb } from "../lib/db.ts";
 import type { ChardonDb } from "../lib/db.ts";
+import { countLinkedWorktrees, isGitWorktree } from "../lib/git.ts";
 import { isMainModule } from "../lib/is-main.ts";
 import { projectsDir } from "../lib/token-parser.ts";
 
@@ -445,19 +446,21 @@ export function main(): void {
       }
     })();
 
-    // Worktrees
+    // Worktrees: real linked git worktrees, or `-wt-N` sibling clones. A -wt-N
+    // sibling may itself be a linked worktree, hence max() and not a sum.
     const worktrees = (() => {
       try {
-        return countWorktrees(projectDir);
+        return Math.max(countWorktrees(projectDir), countLinkedWorktrees(projectDir));
       } catch {
         return 0;
       }
     })();
 
-    // Derive origin from project dir name (worktree dirs end in -wt-<digits>).
-    const origin: "main" | "worktree" = WORKTREE_SUFFIX.test(basename(projectDir))
-      ? "worktree"
-      : "main";
+    // Derive origin from git (authoritative), falling back to the -wt-N naming.
+    const origin: "main" | "worktree" =
+      isGitWorktree(projectDir) || WORKTREE_SUFFIX.test(basename(projectDir))
+        ? "worktree"
+        : "main";
 
     // Token budget from DB
     let todayTokens: number | undefined;

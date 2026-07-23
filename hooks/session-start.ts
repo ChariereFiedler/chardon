@@ -12,12 +12,16 @@ import { execSync } from "node:child_process";
 import { basename } from "node:path";
 import { isMainModule } from "../lib/is-main.ts";
 
-import { loadConfig, repoSlug } from "../lib/config.ts";
+import { loadConfig, repoSlug, safeRegex } from "../lib/config.ts";
 import { openDb, closeDb, writeSession } from "../lib/db.ts";
 import { debug } from "../lib/debug.ts";
+import { isGitWorktree } from "../lib/git.ts";
 
 /** Pattern that identifies a Claude Code worktree directory. */
 const WORKTREE_SUFFIX_PATTERN = /-wt-\d+$/;
+
+/** Git refs are short in practice; cap what reaches the user-supplied regex. */
+const MAX_BRANCH_LENGTH = 200;
 
 /**
  * Core logic: inserts a session row for the given parsed input.
@@ -50,9 +54,12 @@ export function run(input: unknown, env: NodeJS.ProcessEnv): void {
     const repo = repoSlug(projectDir);
     if (!repo) return;
 
-    const sessionType: "worktree" | "main" = WORKTREE_SUFFIX_PATTERN.test(basename(projectDir))
-      ? "worktree"
-      : "main";
+    // A real linked `git worktree` is authoritative; the `-wt-N` sibling-clone
+    // naming convention is kept as a fallback for non-worktree clones.
+    const sessionType: "worktree" | "main" =
+      isGitWorktree(projectDir) || WORKTREE_SUFFIX_PATTERN.test(basename(projectDir))
+        ? "worktree"
+        : "main";
 
     // Read the current git branch (silent on failure).
     const gitBranch = (() => {
@@ -68,7 +75,10 @@ export function run(input: unknown, env: NodeJS.ProcessEnv): void {
     })();
 
     // Extract the ticket number from the branch via the configurable regex.
-    const ticketMatch = gitBranch.match(new RegExp(config.ticketRegex));
+    // loadConfig only lets safeRegex-vetted patterns through; the branch is
+    // capped as a second layer against pathological inputs.
+    const ticketPattern = safeRegex(config.ticketRegex);
+    const ticketMatch = ticketPattern ? gitBranch.slice(0, MAX_BRANCH_LENGTH).match(ticketPattern) : null;
     const ticketIid = ticketMatch ? parseInt(ticketMatch[1], 10) : undefined;
 
     const db = openDb();

@@ -149,3 +149,35 @@ describe("session-start hook — in-process run() tests", () => {
     expect(count).toBe(0);
   });
 });
+
+describe("session-start — git worktree detection", () => {
+  it("classifies a linked git worktree as session_type=worktree", () => {
+    const root = mkdtempSync(join(tmpdir(), "chardon-wt-"));
+    const mainRepo = join(root, "repo");
+    const wt = join(root, "repo-feature");
+    mkdirSync(mainRepo);
+    const git = (cwd: string, ...args: string[]) =>
+      execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", ...args], {
+        cwd,
+        stdio: "ignore",
+        env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null" },
+      });
+    git(mainRepo, "init", "-b", "main");
+    git(mainRepo, "commit", "--allow-empty", "-m", "init");
+    git(mainRepo, "worktree", "add", wt);
+
+    const dbFile = join(root, "t.db");
+    run({ session_id: "wt-session" }, { CHARDON_DB: dbFile, CLAUDE_PROJECT_DIR: wt });
+
+    process.env.CHARDON_DB = dbFile;
+    const db = openDb();
+    try {
+      const row = db
+        .prepare("SELECT session_type FROM sessions WHERE id = 'wt-session'")
+        .get() as { session_type: string };
+      expect(row.session_type).toBe("worktree");
+    } finally {
+      closeDb(db);
+    }
+  });
+});
