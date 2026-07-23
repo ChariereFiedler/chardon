@@ -135,7 +135,9 @@ export function validateDocs(): void {
   }
 
   // Every config key documented in a table must exist in the defaults.
-  for (const [, key] of readme.matchAll(/^\| `(\w+)` \| `?[^|]*`? \|/gm)) {
+  // Config rows have three cells (key, default, description); two-cell tables
+  // (status-line segments, commands) are not config and are skipped.
+  for (const [, key] of readme.matchAll(/^\| `(\w+)` \|[^|\n]*\|[^|\n]*\|/gm)) {
     if (key in config) continue;
     if (/^CHARDON_|^CLAUDE_/.test(key)) continue; // env vars, checked below
     fail(`README documents config key \`${key}\`, absent from config/chardon.default.json`);
