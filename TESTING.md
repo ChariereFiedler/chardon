@@ -60,8 +60,20 @@ DB and pointing `CHARDON_DB` at it, `seed()` inserting typical sessions/events).
 3. Renderings (daily report, status line) are **pure functions** separate from I/O.
 4. Slug/worktree resolution derives from `CLAUDE_PROJECT_DIR`, never a hardcoded path.
 
-> Note: `token-parser`, `improve`, `roi`, `statusline` land in batches 2-6; their rows
-> above describe the intended coverage, not yet-existing tests.
+## Beyond the levels above (all live in the suite)
+
+- **Mutation testing** (Stryker, `npm run mutation`): runs in CI on the risk-bearing
+  `lib/` modules with a blocking `break: 75` threshold; the suite must kill the
+  mutants, not merely cover the lines.
+- **Fault injection**: every hook is exercised against a corrupted database file
+  (`hooks/corrupted-db.test.ts`: exit 0, empty stdout), an unreachable DB path, and
+  malformed stdin; the GitLab collector and the `claude -p` writer are tested through
+  injectable runners covering timeouts, error payloads and garbage output, plus a
+  real fake-binary subprocess.
+- **Replay idempotence**: the same SessionStart/PostToolUse payload sent twice must
+  not duplicate rows (primary keys + `INSERT OR IGNORE` asserted).
+- **Coverage gate**: `vitest.config.ts` enforces `lib/` line coverage ≥ 90 in the CI
+  coverage job.
 
 ## LLM task evaluation
 

@@ -54,6 +54,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Network-exit transparency is now mechanical: `lib/network-exits.ts` is the
+  single source of truth, rendered by `/chardon-inspect` and enforced against
+  the README by `tools/validate.ts`; the third exit (`/chardon-skills` through
+  `claude -p`) is documented.
+- `hook_health.last_error` is now recorded by all three collecting hooks
+  (session-start and stop, not only post-tool-use).
+- `purge_log` persists the purged `nudges` count (additive column).
+- The `claude -p` prompt travels on stdin instead of argv, and the drafted
+  skill name is validated against a strict slug allowlist.
 - `analyze-daily` now fails with a clean one-line error on an unreadable
   database instead of a stack trace.
 - The GitLab status line collector hides the segment on malformed API payloads
