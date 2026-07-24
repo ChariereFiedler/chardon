@@ -8,6 +8,9 @@ export default defineConfig({
   test: {
     environment: "node",
     testTimeout: SUBPROCESS_SAFE_TIMEOUT_MS,
+    // beforeAll/beforeEach also spawn subprocesses (dist builds, git fixtures):
+    // the 10s hook default flaked under parallel load where tests did not.
+    hookTimeout: SUBPROCESS_SAFE_TIMEOUT_MS,
     include: [
       "lib/**/*.test.ts",
       "hooks/**/*.test.ts",
