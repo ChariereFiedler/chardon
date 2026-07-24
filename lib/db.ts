@@ -99,6 +99,14 @@ export function openDb(): ChardonDb {
       if (!String((err as Error).message).includes("duplicate column")) throw err;
     }
   }
+  if (columnMissing(db, "purge_log", "nudges")) {
+    try {
+      db.exec("ALTER TABLE purge_log ADD COLUMN nudges INTEGER NOT NULL DEFAULT 0");
+    } catch (err) {
+      // Same check-then-act race as above: a duplicate column is success.
+      if (!String((err as Error).message).includes("duplicate column")) throw err;
+    }
+  }
 
   // Stamp the schema generation so future non-additive drifts are detectable.
   // PRAGMA takes no bind parameters; the value is an internal integer constant.

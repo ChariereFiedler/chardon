@@ -136,3 +136,12 @@ describe("shouldAutoPurge", () => {
     expect(shouldAutoPurge(db, 90, NOW, "p")).toBe(false);
   });
 });
+
+describe("purge_log completeness", () => {
+  it("persists the purged nudges count in the log row", () => {
+    db.prepare(`INSERT INTO nudges (date, repo, kind, target) VALUES ('2026-01-01', 'p', 'toil', 'old cmd')`).run();
+    purgeOldData(db, 90, NOW, "p");
+    const log = db.prepare(`SELECT nudges FROM purge_log ORDER BY id DESC LIMIT 1`).get() as { nudges: number };
+    expect(log.nudges).toBe(1);
+  });
+});

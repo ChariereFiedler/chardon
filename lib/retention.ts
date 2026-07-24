@@ -68,9 +68,9 @@ export function purgeOldData(
   db.prepare(`DELETE FROM purge_log WHERE repo = ? AND ts < ?`).run(repo, cutoff);
 
   db.prepare(
-    `INSERT INTO purge_log (ts, repo, retention_days, events, sessions, token_usage)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-  ).run(now.toISOString(), repo, retentionDays, events, sessions, tokenUsage);
+    `INSERT INTO purge_log (ts, repo, retention_days, events, sessions, token_usage, nudges)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  ).run(now.toISOString(), repo, retentionDays, events, sessions, tokenUsage, nudges);
 
   db.exec("VACUUM");
 
