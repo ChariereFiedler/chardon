@@ -99,7 +99,9 @@ describe("draftSkill", () => {
   it("drafts through a real subprocess when the binary is a script", () => {
     const dir = mkdtempSync(join(tmpdir(), "chardon-fakeclaude-"));
     const bin = join(dir, "claude");
-    writeFileSync(bin, `#!/bin/sh\nprintf '%s\\n' '---' 'name: from-script' '---' 'body'\n`);
+    // The script must consume stdin: the prompt now arrives there, and a child
+    // exiting without reading it can EPIPE the caller depending on timing.
+    writeFileSync(bin, `#!/bin/sh\ncat > /dev/null\nprintf '%s\\n' '---' 'name: from-script' '---' 'body'\n`);
     chmodSync(bin, 0o755);
     const result = draftSkill(CANDIDATE, ".claude/skills/", {
       env: { CHARDON_CLAUDE_BIN: bin },
