@@ -3,6 +3,7 @@ import { isMainModule } from "../lib/is-main.ts";
 import { closeDb, openDb } from "../lib/db.ts";
 import type { ChardonDb } from "../lib/db.ts";
 import { dbPath, repoSlug } from "../lib/config.ts";
+import { NETWORK_EXITS, networkExitCountWord } from "../lib/network-exits.ts";
 
 const TABLES = ["sessions", "events", "token_usage", "actions", "patterns", "hook_health", "ticket_metrics", "purge_log", "nudges"];
 
@@ -55,12 +56,16 @@ export function renderInspect(d: InspectData): string {
       );
     }
   }
+  // Rendered from the single source of truth so this list can never go stale
+  // when a new exit ships (tools/validate.ts enforces the README side).
+  const countWord = networkExitCountWord();
   lines.push(
     "",
-    "Two opt-in features can send data off this machine: the weekly LLM synthesis",
-    "(`/chardon-weekly`, only when you set `ANTHROPIC_API_KEY`) and the GitLab counts",
-    "of the status line (only when `.chardon.json` sets `gitlab.enabled`).",
+    `${countWord.charAt(0).toUpperCase()}${countWord.slice(1)} opt-in features can send data off this machine:`,
   );
+  for (const exit of NETWORK_EXITS) {
+    lines.push(`- ${exit.summary} (trigger: ${exit.trigger})`);
+  }
   return lines.join("\n");
 }
 

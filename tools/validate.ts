@@ -26,6 +26,7 @@
 import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { NETWORK_EXITS, networkExitCountWord } from "../lib/network-exits.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const PLUGIN_ROOT_VAR = /\$\{CLAUDE_PLUGIN_ROOT\}\/([\w./-]+)/g;
@@ -141,6 +142,19 @@ export function validateDocs(): void {
     if (key in config) continue;
     if (/^CHARDON_|^CLAUDE_/.test(key)) continue; // env vars, checked below
     fail(`README documents config key \`${key}\`, absent from config/chardon.default.json`);
+  }
+
+  // Network-exit transparency: the README must acknowledge every opt-in exit
+  // declared in lib/network-exits.ts. The "single exception" claim went stale
+  // three times in two days as exits were added; now a missing one breaks CI.
+  const countWord = networkExitCountWord();
+  if (!readme.includes(`${countWord} opt-in exception`)) {
+    fail(`README must state "${countWord} opt-in exceptions" (source of truth: lib/network-exits.ts)`);
+  }
+  for (const exit of NETWORK_EXITS) {
+    if (!readme.includes(exit.trigger)) {
+      fail(`README never mentions the network-exit trigger \`${exit.trigger}\` (lib/network-exits.ts)`);
+    }
   }
 
   checkPluginRootPaths(readme, "README.md");

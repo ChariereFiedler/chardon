@@ -35,7 +35,7 @@ report like this one:
 Then it proposes one concrete action per friction, records a **baseline**, and re-measures
 after you act, so a suggestion that changed nothing is shown for what it is and never
 proposed again. Everything runs locally: no server, no account, no data leaving your
-machine (two opt-in exceptions, both listed in [Data & privacy](#data--privacy)).
+machine (three opt-in exceptions, all listed in [Data & privacy](#data--privacy)).
 
 ## Quickstart
 
@@ -207,7 +207,7 @@ truncation caps the blast radius. Report gaps via
 your local session transcripts (`~/.claude/projects/…`) to extract **token usage counters
 only**; transcript text never reaches the database.
 
-**What leaves your machine**: nothing, with two opt-in exceptions.
+**What leaves your machine**: nothing, with three opt-in exceptions.
 
 1. `/chardon-weekly`'s synthesis step calls the Anthropic API, only if you set
    `ANTHROPIC_API_KEY`. The prompt contains the weekly aggregates: repo name, redacted
@@ -216,6 +216,11 @@ only**; transcript text never reaches the database.
    `CHARDON_MODEL` (defaults to an Opus-class model; set a cheaper one if you prefer).
 2. The optional GitLab section of the status line calls the GitLab API on each refresh
    (two requests) with the token you configured. Off by default.
+3. `/chardon-skills` drafts proposed skills through your locally installed Claude Code
+   CLI (`claude -p`), under your own account and subscription. The prompt contains only
+   mined step signatures and already-redacted, truncated commands, capped at five calls
+   per run. Without a resolvable `claude` binary, no network happens at all and a
+   deterministic skeleton is generated instead.
 
 **Retention**: `retentionDays` (default 90) bounds the history kept per repo. At session
 end the Stop hook opportunistically purges the current repo's older rows, at most once a
@@ -449,7 +454,7 @@ Agent-facing working rules → [`AGENTS.md`](AGENTS.md) and [`CLAUDE.md`](CLAUDE
 ```bash
 npm install        # dev tooling only, never needed at runtime
 npm run build      # refresh dist/*.mjs (the bundles are committed)
-npm test           # 419 tests
+npm test           # 424 tests
 npm run typecheck
 npm run lint
 ```
