@@ -107,3 +107,27 @@ describe("draftSkill", () => {
     expect(result?.name).toBe("from-script");
   });
 });
+
+describe("draftSkill hardening", () => {
+  it("rejects a drafted name outside the slug allowlist", () => {
+    const evil = "---\nname: ../../escape\n---\nbody";
+    const result = draftSkill(CANDIDATE, ".claude/skills/", {
+      env: { CHARDON_CLAUDE_BIN: "/fake/claude" },
+      runner: () => evil,
+    });
+    expect(result).toBeNull();
+  });
+
+  it("passes the prompt via stdin, never argv", () => {
+    const dir = mkdtempSync(join(tmpdir(), "chardon-stdin-"));
+    const bin = join(dir, "claude");
+    // The fake binary proves the prompt arrives on stdin and argv stays clean.
+    writeFileSync(
+      bin,
+      `#!/bin/sh\ncase "$*" in *edit@core*) echo "ARGV-LEAK"; exit 1;; esac\ngrep -q "edit@core" && printf '%s\\n' '---' 'name: from-stdin' '---' 'body'\n`,
+    );
+    chmodSync(bin, 0o755);
+    const result = draftSkill(CANDIDATE, ".claude/skills/", { env: { CHARDON_CLAUDE_BIN: bin } });
+    expect(result?.name).toBe("from-stdin");
+  });
+});

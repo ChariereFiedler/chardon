@@ -20,6 +20,12 @@ export type ClaudeRunner = (bin: string, prompt: string) => string;
 const NAME_LINE_PATTERN = /^name:\s*(\S+)/m;
 
 /**
+ * The drafted name is LLM output, hence untrusted: only plain kebab-case slugs
+ * are accepted (it ends up in the DB, the digest, and install instructions).
+ */
+const NAME_ALLOWLIST = /^[a-z0-9][a-z0-9-]{0,63}$/;
+
+/**
  * Resolves the Claude Code binary: `CHARDON_CLAUDE_BIN` first (it often lives
  * outside the shell PATH, e.g. ~/.local/bin), then a `claude` file on PATH.
  * Returns null when neither resolves; drafting is then skipped silently.
@@ -57,10 +63,13 @@ export function buildDraftPrompt(c: ProcedureCandidate, installTarget: string): 
 }
 
 function defaultRunner(bin: string, prompt: string): string {
-  return execFileSync(bin, ["-p", prompt], {
+  // The prompt travels on stdin, never argv: argv is world-readable through
+  // /proc while the call runs (same posture as the curl token config).
+  return execFileSync(bin, ["-p"], {
+    input: prompt,
     encoding: "utf-8",
     timeout: CLAUDE_P_TIMEOUT_MS,
-    stdio: ["ignore", "pipe", "ignore"],
+    stdio: ["pipe", "pipe", "ignore"],
   });
 }
 
@@ -81,7 +90,7 @@ export function draftSkill(
     const output = (opts.runner ?? defaultRunner)(bin, buildDraftPrompt(c, installTarget)).trim();
     if (!output.startsWith("---")) return null;
     const name = output.match(NAME_LINE_PATTERN)?.[1];
-    if (!name) return null;
+    if (!name || !NAME_ALLOWLIST.test(name)) return null;
     return { markdown: output, name };
   } catch {
     // Timeout, crash, or unusable CLI: the deterministic skeleton takes over.
