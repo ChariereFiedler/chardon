@@ -132,7 +132,8 @@ CREATE TABLE IF NOT EXISTS purge_log (
   retention_days INTEGER NOT NULL,
   events         INTEGER NOT NULL,                -- rows removed per table
   sessions       INTEGER NOT NULL,
-  token_usage    INTEGER NOT NULL
+  token_usage    INTEGER NOT NULL,
+  nudges         INTEGER NOT NULL DEFAULT 0
 );
 
 -- Collection self-health (Public): counts of successful vs failed hook writes per
