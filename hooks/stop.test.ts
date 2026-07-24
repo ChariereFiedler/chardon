@@ -4,7 +4,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { openDb, closeDb } from "../lib/db.ts";
+import { openDb, closeDb, writeSession } from "../lib/db.ts";
 import { run } from "./stop.ts";
 
 const HOOK = join(dirname(fileURLToPath(import.meta.url)), "stop.ts");
@@ -148,5 +148,32 @@ describe("stop hook — in-process run() tests", () => {
     closeDb(db2);
     // session was not closed (ended_at remains null)
     expect(row?.ended_at).toBeNull();
+  });
+});
+
+describe("stop hook records collection failures with their message", () => {
+  it("stores the last swallowed write error, redacted, in hook_health", () => {
+    const dir = mkdtempSync(join(tmpdir(), "chardon-stop-err-"));
+    process.env.CHARDON_DB = join(dir, "t.db");
+    const db = openDb();
+    writeSession(db, { id: "err1", repo: basename(dir), sessionType: "main" });
+    // Force the UPDATE in closeSession to fail loudly.
+    db.exec(`CREATE TRIGGER fail_update BEFORE UPDATE ON sessions BEGIN
+      SELECT RAISE(ABORT, 'boom glpat-secret1234567890abcd');
+    END;`);
+    closeDb(db);
+
+    run({ session_id: "err1" }, { CHARDON_DB: process.env.CHARDON_DB, CLAUDE_PROJECT_DIR: dir });
+
+    const check = openDb();
+    try {
+      const row = check
+        .prepare(`SELECT last_error FROM hook_health WHERE repo = ? AND failed > 0`)
+        .get(basename(dir)) as { last_error: string } | undefined;
+      expect(row?.last_error).toContain("boom");
+      expect(row?.last_error).not.toContain("glpat-secret1234567890abcd");
+    } finally {
+      closeDb(check);
+    }
   });
 });

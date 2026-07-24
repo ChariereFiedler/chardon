@@ -14,7 +14,7 @@ import { basename } from "node:path";
 import { isMainModule } from "../lib/is-main.ts";
 
 import { loadConfig, repoSlug, safeRegex } from "../lib/config.ts";
-import { openDb, closeDb, writeSession } from "../lib/db.ts";
+import { openDb, closeDb, recordHealth, writeSession } from "../lib/db.ts";
 import { debug } from "../lib/debug.ts";
 import { isGitWorktree } from "../lib/git.ts";
 import { buildSessionContext } from "../lib/session-context.ts";
@@ -115,7 +115,21 @@ export function run(input: unknown, env: NodeJS.ProcessEnv, now: Date = new Date
       closeDb(db);
     }
   } catch (err) {
-    // Absolute fail-open: any unexpected error is silently ignored (surfaced via CHARDON_DEBUG).
+    // Absolute fail-open, but leave the cause behind when the DB is reachable:
+    // Collection health can then say WHAT broke, not only that something did.
+    try {
+      const repo = repoSlug(env.CLAUDE_PROJECT_DIR ?? "");
+      if (repo) {
+        const dbHealth = openDb();
+        try {
+          recordHealth(dbHealth, repo, false, err instanceof Error ? err.message : String(err));
+        } finally {
+          closeDb(dbHealth);
+        }
+      }
+    } catch {
+      // The DB itself is down: stderr (CHARDON_DEBUG) is the only trace left.
+    }
     debug("session-start", err);
   }
 }

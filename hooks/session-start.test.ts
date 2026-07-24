@@ -280,3 +280,28 @@ describe("session-start — root hash for slug-collision detection", () => {
     }
   });
 });
+
+describe("session-start records collection failures with their message", () => {
+  it("stores the last swallowed write error in hook_health", () => {
+    const root = mkdtempSync(join(tmpdir(), "chardon-ss-err-"));
+    const dbFile = join(root, "t.db");
+    process.env.CHARDON_DB = dbFile;
+    const db = openDb();
+    db.exec(`CREATE TRIGGER fail_insert BEFORE INSERT ON sessions BEGIN
+      SELECT RAISE(ABORT, 'session write exploded');
+    END;`);
+    closeDb(db);
+
+    run({ session_id: "sserr" }, { CHARDON_DB: dbFile, CLAUDE_PROJECT_DIR: root });
+
+    const check = openDb();
+    try {
+      const row = check
+        .prepare(`SELECT last_error FROM hook_health WHERE failed > 0`)
+        .get() as { last_error: string } | undefined;
+      expect(row?.last_error).toContain("session write exploded");
+    } finally {
+      closeDb(check);
+    }
+  });
+});

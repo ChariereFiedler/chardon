@@ -10,7 +10,7 @@
 import { readFileSync } from "node:fs";
 import { isMainModule } from "../lib/is-main.ts";
 
-import { openDb, closeDb, closeSession } from "../lib/db.ts";
+import { openDb, closeDb, closeSession, recordHealth } from "../lib/db.ts";
 import { generateDailyReport } from "../scripts/analyze-daily.ts";
 import { aggregateTranscripts, upsertTokenUsage } from "../lib/token-parser.ts";
 import { loadConfig, repoSlug } from "../lib/config.ts";
@@ -90,7 +90,21 @@ export async function run(input: unknown, env: NodeJS.ProcessEnv, runNow: Date =
       // Fail-open: retention error silently ignored.
     }
   } catch (err) {
-    // Absolute fail-open: any unexpected error is silently ignored (surfaced via CHARDON_DEBUG).
+    // Absolute fail-open, but leave the cause behind when the DB is reachable:
+    // Collection health can then say WHAT broke, not only that something did.
+    try {
+      const repo = repoSlug(env.CLAUDE_PROJECT_DIR ?? "");
+      if (repo) {
+        const dbHealth = openDb();
+        try {
+          recordHealth(dbHealth, repo, false, err instanceof Error ? err.message : String(err));
+        } finally {
+          closeDb(dbHealth);
+        }
+      }
+    } catch {
+      // The DB itself is down: stderr (CHARDON_DEBUG) is the only trace left.
+    }
     debug("stop", err);
   }
 }
